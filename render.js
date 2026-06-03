@@ -29,6 +29,101 @@ function _filtrarPorMes(lista, campoData) {
     });
 }
 
+// ──────────────────────────────────────────
+// LÓGICA DE PARCELAS E A PAGAR
+//
+// Um item pode ser:
+//   tipo === 'Parcelado'  →  gera N entradas virtuais (1 por mês)
+//   tipo !== 'Parcelado'  →  entrada única
+//
+// Regras de exibição em A PAGAR:
+//   • Itens não pagos (pendente/vencido) aparecem em seu mês de vencimento
+//   • Itens vencidos e não pagos aparecem em TODOS os meses futuros e no mês atual também
+//   • Itens pagos NÃO aparecem mais em A Pagar (foram para Despesas)
+//   • Para parcelados: cada parcela paga some de A Pagar; as futuras ainda aparecem
+//
+// Ao marcar pago:
+//   • Cria automaticamente uma despesa com a data de hoje
+//   • Remove o item de A Pagar (ou marca a parcela como paga)
+// ──────────────────────────────────────────
+
+/**
+ * Expande itens de a_pagar em entradas virtuais por parcela.
+ * Retorna array de objetos com campos extras:
+ *   _parcelaNum, _parcelaNome, _valorParcela, _instanciaId (único por parcela)
+ */
+function _expandirAPagar(lista) {
+    const result = [];
+    lista.forEach(item => {
+        if (item.tipo === 'Parcelado' && item.parcelas > 1) {
+            const total = item.parcelas;
+            const valorParcela = parseFloat(item.valor) / total;
+            // Parcelas já pagas são armazenadas em item.parcelasPagas = [1,2,...]
+            const pagas = item.parcelasPagas || (item.pago ? Array.from({length: total}, (_, i) => i + 1) : []);
+            for (let p = 1; p <= total; p++) {
+                // Calcular vencimento desta parcela (mês + p-1)
+                const [y, m, d] = (item.vencimento || '').split('-').map(Number);
+                const vencDate = new Date(y, m - 1 + (p - 1), d);
+                const vencISO = vencDate.toISOString().slice(0, 10);
+                const estaPaga = pagas.includes(p);
+                result.push({
+                    ...item,
+                    _parcelaNum: p,
+                    _parcelaNome: `${item.descricao} (${p}/${total})`,
+                    _valorParcela: valorParcela,
+                    _instanciaId: `${item.id}_p${p}`,
+                    vencimento: vencISO,
+                    pago: estaPaga,
+                    _parcelasPagas: pagas,
+                    _totalParcelas: total,
+                    _isParcelado: true,
+                });
+            }
+        } else {
+            result.push({ ...item, _isParcelado: false, _valorParcela: parseFloat(item.valor) || 0 });
+        }
+    });
+    return result;
+}
+
+/**
+ * Filtra entradas virtuais de A PAGAR para exibição no mês selecionado.
+ * Regras:
+ *   - Itens pagos → NÃO aparecem (foram para despesas)
+ *   - Itens pendentes/vencidos → aparecem APENAS no seu mês de vencimento
+ *   - Itens VENCIDOS (data passada, não pagos) → aparecem no mês atual também
+ */
+function _filtrarAPagarParaMes(lista) {
+    const mes = getMesSel();
+    const ano = getAnoSel();
+    const expandida = _expandirAPagar(lista);
+    if (mes === null) {
+        // Modo "todos": mostra só os não pagos
+        return expandida.filter(i => !i.pago);
+    }
+
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const inicioMes = new Date(ano, mes, 1);
+    const fimMes    = new Date(ano, mes + 1, 0);
+
+    return expandida.filter(item => {
+        if (item.pago) return false; // pagos somem de A Pagar
+
+        const venc = new Date((item.vencimento || '') + 'T00:00:00');
+        const esteEhOMesDeVenc = venc.getMonth() === mes && venc.getFullYear() === ano;
+
+        // Se o item está vencido (data antes de hoje) e ainda não foi pago,
+        // aparece no mês atual e em todos meses futuros ao vencimento
+        const estaVencido = venc < hoje;
+        const mesAtual    = hoje.getMonth() === mes && hoje.getFullYear() === ano;
+        const mesFuturo   = inicioMes > hoje;
+
+        if (esteEhOMesDeVenc) return true;
+        if (estaVencido && (mesAtual || mesFuturo)) return true;
+        return false;
+    });
+}
+
 // ==========================================
 // CONFIGURAÇÕES
 // ==========================================
@@ -70,17 +165,23 @@ function atualizarIconeNotificacao() {
     const hoje   = new Date(); hoje.setHours(0,0,0,0);
     const em3    = new Date(hoje); em3.setDate(em3.getDate() + 3);
 
-    const apagarItems = getData('a_pagar', []);
+    // Usa parcelas expandidas para notificações próximas/vencidas
+    const expandidas = _expandirAPagar(getData('a_pagar', []));
     const notifs = [];
 
-    apagarItems.forEach(item => {
+    expandidas.forEach(item => {
+        if (item.pago) return;
         const status = _statusAPagar(item);
+        const nome  = item._isParcelado ? item._parcelaNome : item.descricao;
+        const valor = item._valorParcela || parseFloat(item.valor) || 0;
+        // Para notificações, o id de navegação é sempre o item pai
+        const navId = item.id;
         if (status === 'vencido') {
-            notifs.push({ tipo: 'vencido', msg: `<strong>${item.descricao}</strong> venceu em ${_fmtData(item.vencimento)} (${brl(item.valor)})` });
+            notifs.push({ tipo: 'vencido', id: navId, msg: `<strong>${nome}</strong> venceu em ${_fmtData(item.vencimento)} (${brl(valor)})` });
         } else if (status === 'pendente') {
             const venc = new Date(item.vencimento + 'T00:00:00');
             if (venc <= em3) {
-                notifs.push({ tipo: 'proximo', msg: `<strong>${item.descricao}</strong> vence em ${_fmtData(item.vencimento)} (${brl(item.valor)})` });
+                notifs.push({ tipo: 'proximo', id: navId, msg: `<strong>${nome}</strong> vence em ${_fmtData(item.vencimento)} (${brl(valor)})` });
             }
         }
     });
@@ -96,12 +197,28 @@ function atualizarIconeNotificacao() {
             lista.innerHTML = '<div class="notif-empty"><i class="fas fa-check-circle"></i><p>Nenhuma notificação pendente</p></div>';
         } else {
             lista.innerHTML = notifs.map(n => `
-                <div class="notif-item notif-item--${n.tipo}">
+                <div class="notif-item notif-item--${n.tipo}" style="cursor:pointer;" onclick="irParaItemAPagar('${n.id}')">
                     <i class="fas fa-${n.tipo === 'vencido' ? 'exclamation-triangle' : 'clock'}"></i>
                     <span>${n.msg}</span>
+                    <i class="fas fa-arrow-right" style="margin-left:auto;font-size:10px;opacity:0.5;flex-shrink:0;"></i>
                 </div>`).join('');
         }
     }
+}
+
+function irParaItemAPagar(itemId) {
+    const panel = document.getElementById('notif-panel');
+    if (panel) panel.classList.add('hidden');
+    const menuItem = document.querySelector('.menu-item[onclick*="a-pagar"]');
+    if (menuItem) mudarAba('A Pagar', 'a-pagar', menuItem);
+    setTimeout(() => {
+        const itemEl = document.querySelector(`[data-id="${itemId}"]`);
+        if (itemEl) {
+            itemEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            itemEl.classList.add('notif-highlight');
+            setTimeout(() => itemEl.classList.remove('notif-highlight'), 2500);
+        }
+    }, 300);
 }
 
 function recuperarSenha(e) {
@@ -319,7 +436,8 @@ function renderizarAPagar() {
         filtroC.value = prev;
     }
 
-    let items = _filtrarPorMes(getData('a_pagar'), 'vencimento');
+    // Usa nova lógica: expande parcelas, filtra por mês com regras de vencido
+    let items = _filtrarAPagarParaMes(getData('a_pagar'));
     const statusFiltro = filtroS ? filtroS.value : '';
     const catFiltro    = filtroC ? filtroC.value : '';
     if (statusFiltro) items = items.filter(i => _statusAPagar(i) === statusFiltro);
@@ -327,7 +445,7 @@ function renderizarAPagar() {
 
     items.sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''));
 
-    const total = items.filter(i => !i.pago).reduce((s, i) => s + (parseFloat(i.valor) || 0), 0);
+    const total = items.reduce((s, i) => s + (i._valorParcela || parseFloat(i.valor) || 0), 0);
     if (totalEl) totalEl.textContent = brl(total);
 
     if (items.length === 0) {
@@ -340,38 +458,99 @@ function renderizarAPagar() {
         const cat    = cats.find(c => c.id === item.categoriaId);
         const icone  = cat ? cat.icone : '💸';
         const cor    = cat ? cat.cor   : '#95a5a6';
-        const badgeClass = { pago: 'badge-pago', pendente: 'badge-pendente', vencido: 'badge-vencido' }[status];
-        const badgeLabel = { pago: 'Pago', pendente: 'Pendente', vencido: 'Vencido' }[status];
+        const badgeClass = { pendente: 'badge-pendente', vencido: 'badge-vencido' }[status] || 'badge-pendente';
+        const badgeLabel = { pendente: 'Pendente', vencido: 'Vencido' }[status] || 'Pendente';
+        const valorExibir = item._isParcelado ? item._valorParcela : (parseFloat(item.valor) || 0);
+        const nomeExibir  = item._isParcelado ? item._parcelaNome : item.descricao;
+        // Para parcelados usa _instanciaId para o botão pagar; para normais usa item.id
+        const pagarId = item._isParcelado ? item._instanciaId : item.id;
         return `
-        <div class="reg-item ${item.pago ? 'reg-pago' : ''}">
+        <div class="reg-item" data-id="${item.id}">
             <div class="reg-icon" style="background:${cor}22; color:${cor}">${icone}</div>
             <div class="reg-info">
-                <span class="reg-nome">${item.descricao}</span>
-                <span class="reg-sub">Venc: ${_fmtData(item.vencimento)}${item.tipoPagamentoNome ? ' · ' + item.tipoPagamentoNome : ''}</span>
+                <span class="reg-nome">${nomeExibir}</span>
+                <span class="reg-sub">Venc: ${_fmtData(item.vencimento)}${item.tipoPagamentoNome ? ' · ' + item.tipoPagamentoNome : ''}${status === 'vencido' ? ' · <span style="color:#e74c3c;font-weight:600">Vencido</span>' : ''}</span>
             </div>
             <div class="reg-meio">
                 <span class="badge ${badgeClass}">${badgeLabel}</span>
                 <span class="reg-tipo-tag">${item.tipo || ''}</span>
             </div>
-            <span class="reg-valor text-danger">${brl(item.valor)}</span>
+            <span class="reg-valor text-danger">${brl(valorExibir)}</span>
             <div class="reg-actions">
-                ${!item.pago ? `<button class="btn-icon btn-edit" title="Marcar pago" onclick="marcarPago('${item.id}')"><i class="fas fa-check"></i></button>` : ''}
-                <button class="btn-icon btn-edit" onclick="abrirModalAPagar('${item.id}')"><i class="fas fa-pen"></i></button>
-                <button class="btn-icon btn-del"  onclick="excluirAPagar('${item.id}')"><i class="fas fa-trash"></i></button>
+                <button class="btn-icon btn-edit" title="Marcar pago" onclick="marcarPago('${pagarId}')"><i class="fas fa-check"></i></button>
+                ${!item._isParcelado ? `<button class="btn-icon btn-edit" onclick="abrirModalAPagar('${item.id}')"><i class="fas fa-pen"></i></button>` : ''}
+                <button class="btn-icon btn-del" onclick="excluirAPagar('${item.id}')"><i class="fas fa-trash"></i></button>
             </div>
         </div>`;
     }).join('');
 }
 
-function marcarPago(id) {
+/**
+ * Marca um item (ou parcela) como pago e cria despesa correspondente.
+ * id pode ser:
+ *   - "abc123"       → item simples
+ *   - "abc123_p2"    → parcela 2 do item abc123
+ */
+function marcarPago(instanciaId) {
     const arr = getData('a_pagar');
-    const idx = arr.findIndex(x => x.id === id);
-    if (idx > -1) { arr[idx].pago = true; }
+    const hoje = new Date().toISOString().slice(0, 10);
+
+    // Detecta se é parcela
+    const parcelaMatch = instanciaId.match(/^(.+)_p(\d+)$/);
+    let itemOriginal, valorPago, descPago, nParc;
+
+    if (parcelaMatch) {
+        // Parcela específica
+        const itemId = parcelaMatch[1];
+        nParc = parseInt(parcelaMatch[2]);
+        const idx = arr.findIndex(x => x.id === itemId);
+        if (idx === -1) return;
+        itemOriginal = arr[idx];
+        valorPago = parseFloat(itemOriginal.valor) / (itemOriginal.parcelas || 1);
+        descPago  = `${itemOriginal.descricao} (${nParc}/${itemOriginal.parcelas})`;
+
+        // Adiciona esta parcela à lista de pagas
+        const pagas = itemOriginal.parcelasPagas || [];
+        if (!pagas.includes(nParc)) pagas.push(nParc);
+        arr[idx].parcelasPagas = pagas;
+
+        // Se todas as parcelas foram pagas, marca o item como pago
+        if (pagas.length >= (itemOriginal.parcelas || 1)) {
+            arr[idx].pago = true;
+        }
+    } else {
+        // Item simples
+        const idx = arr.findIndex(x => x.id === instanciaId);
+        if (idx === -1) return;
+        itemOriginal = arr[idx];
+        valorPago = parseFloat(itemOriginal.valor) || 0;
+        descPago  = itemOriginal.descricao;
+        arr[idx].pago = true;
+        arr[idx].dataPagamento = hoje;
+    }
+
     localStorage.setItem('a_pagar', JSON.stringify(arr));
+
+    // Cria despesa com a data de hoje
+    const despesas = getData('despesas_gastos');
+    despesas.push({
+        id: uid(),
+        descricao: descPago,
+        valor: valorPago,
+        data: hoje,
+        categoriaId: itemOriginal.categoriaId,
+        tipoPagamentoVal: itemOriginal.tipoPagamentoVal,
+        tipoPagamentoNome: itemOriginal.tipoPagamentoNome,
+        obs: itemOriginal.obs || '',
+        _origemAPagar: itemOriginal.id,
+    });
+    localStorage.setItem('despesas_gastos', JSON.stringify(despesas));
+
     renderizarAPagar();
+    renderizarDespesas();
     renderizarAnalise();
     atualizarIconeNotificacao();
-    toast('Conta marcada como paga!', 'success');
+    toast('Conta paga! Lançada em Despesas.', 'success');
 }
 
 function excluirAPagar(id) {
@@ -490,7 +669,31 @@ function renderizarReceitas() {
         filtroM.value = prev;
     }
 
-    let receitas = _filtrarPorMes(getData('receitas'), 'data');
+    const mes = getMesSel();
+    const ano = getAnoSel();
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const todasReceitas = getData('receitas');
+
+    // Recebidas: só aparecem no mês em que foram recebidas (filtragem normal por data)
+    // Previstas não recebidas: aparecem no mês previsto; se passado, aparecem também no mês atual
+    let receitas;
+    if (mes === null) {
+        receitas = todasReceitas;
+    } else {
+        const inicioMes = new Date(ano, mes, 1);
+        receitas = todasReceitas.filter(r => {
+            const d = new Date((r.data || '') + 'T00:00:00');
+            const eMesData = d.getMonth() === mes && d.getFullYear() === ano;
+            if (r.status === 'recebido') return eMesData; // recebida: só no mês da data
+            // Prevista: aparece no mês, ou se data passou e ainda não recebida, aparece no mês atual
+            if (eMesData) return true;
+            const estaAtrasada = d < hoje;
+            const mesAtual = hoje.getMonth() === mes && hoje.getFullYear() === ano;
+            const mesFut   = inicioMes > hoje;
+            return estaAtrasada && (mesAtual || mesFut);
+        });
+    }
+
     const catFiltro = filtroC ? filtroC.value : '';
     const mesFiltro = filtroM ? filtroM.value : '';
     if (catFiltro) receitas = receitas.filter(r => r.categoriaId === catFiltro);
@@ -952,7 +1155,8 @@ let _chartPizza = null;
 
 function renderizarAnalise() {
     const despesas = _filtrarPorMes(getData('despesas_gastos'), 'data');
-    const apagar   = _filtrarPorMes(getData('a_pagar'), 'vencimento');
+    // Para análise: usa a lógica expandida de parcelas para o mês
+    const apagarExpandido = _filtrarAPagarParaMes(getData('a_pagar'));
     const cartoes  = getData('cartoes');
     const cats     = getData('cat_despesas');
 
@@ -960,18 +1164,19 @@ function renderizarAnalise() {
     const despCartao = despesas.filter(d => d.tipoPagamentoVal && d.tipoPagamentoVal.startsWith('cartao_'));
     const totalCartao = despCartao.reduce((s, d) => s + (parseFloat(d.valor) || 0), 0);
 
-    const contasPagas = apagar.filter(i => i.pago);
-    const totalPagas  = contasPagas.reduce((s, i) => s + (parseFloat(i.valor) || 0), 0);
+    // "Contas Pagas" no mês = despesas que vieram de A Pagar (campo _origemAPagar)
+    const despOrigemAPagar = despesas.filter(d => d._origemAPagar);
+    const totalPagas = despOrigemAPagar.reduce((s, d) => s + (parseFloat(d.valor) || 0), 0);
 
-    const pendentes   = apagar.filter(i => !i.pago);
-    const totalPend   = pendentes.reduce((s, i) => s + (parseFloat(i.valor) || 0), 0);
+    // "Previsão" = total de a_pagar pendentes/vencidos no mês (parcelas expandidas)
+    const totalPend = apagarExpandido.reduce((s, i) => s + (i._valorParcela || parseFloat(i.valor) || 0), 0);
 
     const totalDesp   = despesas.reduce((s, d) => s + (parseFloat(d.valor) || 0), 0);
 
     _set('kpi-cartoes',    brl(totalCartao));
     _set('kpi-cartoes-sub', despCartao.length + ' transações');
     _set('kpi-pagas',      brl(totalPagas));
-    _set('kpi-pagas-sub',  contasPagas.length + ' contas');
+    _set('kpi-pagas-sub',  despOrigemAPagar.length + ' contas');
     _set('kpi-previsao',   brl(totalPend));
     _set('kpi-total-despesas', brl(totalDesp));
 
@@ -984,8 +1189,8 @@ function renderizarAnalise() {
     // --- Detalhamento cartões ---
     _renderDetalhamentoCartoes(despesas, cartoes);
 
-    // --- Contas pagas / pendentes / vencidas ---
-    _renderContasStatus(apagar);
+    // --- Contas pendentes / vencidas no mês ---
+    _renderContasStatus(apagarExpandido);
 
     // Atualizar notificações
     atualizarIconeNotificacao();
@@ -1109,29 +1314,36 @@ function _renderDetalhamentoCartoes(despesas, cartoes) {
     }).join('');
 }
 
-function _renderContasStatus(apagar) {
-    const pagas    = apagar.filter(i => _statusAPagar(i) === 'pago');
-    const pend     = apagar.filter(i => _statusAPagar(i) === 'pendente');
-    const venc     = apagar.filter(i => _statusAPagar(i) === 'vencido');
+function _renderContasStatus(apagarExpandido) {
+    // Pagas: despesas do mês que vieram de a_pagar
+    const despMes = _filtrarPorMes(getData('despesas_gastos'), 'data');
+    const pagas   = despMes.filter(d => d._origemAPagar);
+    const pend    = apagarExpandido.filter(i => _statusAPagar(i) === 'pendente');
+    const venc    = apagarExpandido.filter(i => _statusAPagar(i) === 'vencido');
 
-    const _lista = (id, items, emptyIcon) => {
+    const _lista = (id, items, emptyIcon, isPagas) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.innerHTML = items.length === 0
             ? `<div class="dash-empty" style="padding:16px"><i class="fas fa-${emptyIcon}"></i><p>Nenhuma</p></div>`
-            : items.map(i => `
+            : items.map(i => {
+                const nome  = isPagas ? i.descricao : (i._isParcelado ? i._parcelaNome : i.descricao);
+                const valor = isPagas ? (parseFloat(i.valor) || 0) : (i._valorParcela || parseFloat(i.valor) || 0);
+                const data  = isPagas ? (i.data ? `Pago: ${_fmtData(i.data)}` : '') : `Venc: ${_fmtData(i.vencimento)}`;
+                return `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px">
                     <div>
-                        <div style="font-weight:600">${i.descricao}</div>
-                        <div style="color:#999;font-size:11px">Venc: ${_fmtData(i.vencimento)}</div>
+                        <div style="font-weight:600">${nome}</div>
+                        <div style="color:#999;font-size:11px">${data}</div>
                     </div>
-                    <span style="font-weight:700;color:#e74c3c" class="contas-val">${brl(i.valor)}</span>
-                </div>`).join('');
+                    <span style="font-weight:700;color:#e74c3c" class="contas-val">${brl(valor)}</span>
+                </div>`;
+            }).join('');
     };
 
-    _lista('contas-pagas-lista',     pagas, 'check-circle');
-    _lista('contas-pendentes-lista', pend,  'clock');
-    _lista('contas-vencidas-lista',  venc,  'exclamation-triangle');
+    _lista('contas-pagas-lista',     pagas, 'check-circle',          true);
+    _lista('contas-pendentes-lista', pend,  'clock',                 false);
+    _lista('contas-vencidas-lista',  venc,  'exclamation-triangle',  false);
 }
 
 // ==========================================
@@ -1141,3 +1353,158 @@ document.addEventListener('DOMContentLoaded', () => {
     renderizarConfiguracoes();
     atualizarIconeNotificacao();
 });
+
+// ==========================================
+// BACKUP & RESTAURAÇÃO JSON
+// ==========================================
+function exportarBackupJSON() {
+    const KEYS = ['despesas_gastos','a_pagar','receitas','cartoes','cat_despesas','cat_receitas','tipos_despesa','metas'];
+    const payload = {};
+    KEYS.forEach(k => {
+        try { payload[k] = JSON.parse(localStorage.getItem(k) || '[]'); } catch { payload[k] = []; }
+    });
+    payload._exportado_em = new Date().toISOString();
+    payload._versao = '1.0';
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `backup-financas-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    toast('Backup exportado com sucesso!', 'success');
+}
+
+function importarBackupJSON(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            const KEYS = ['despesas_gastos','a_pagar','receitas','cartoes','cat_despesas','cat_receitas','tipos_despesa','metas'];
+            let count = 0;
+            KEYS.forEach(k => {
+                if (data[k] !== undefined) {
+                    localStorage.setItem(k, JSON.stringify(data[k]));
+                    count++;
+                }
+            });
+            input.value = '';
+            toast(`✅ ${count} categorias restauradas com sucesso!`, 'success');
+            renderizarDados();
+            if (typeof renderizarAnalise === 'function') renderizarAnalise();
+        } catch(err) {
+            toast('Erro ao ler o arquivo JSON. Verifique o arquivo.', 'error');
+            console.error(err);
+        }
+    };
+    reader.readAsText(file);
+}
+
+// ==========================================
+// EXPORTAR EXCEL
+// ==========================================
+function exportarExcel() {
+    const cats = getData('cat_despesas', []);
+    const catReceitas = getData('cat_receitas', []);
+    const tipos = getData('tipos_despesa', []);
+
+    const despesas = getData('despesas_gastos', []).map(d => ({
+        'Data': d.data || '',
+        'Descrição': d.descricao || '',
+        'Valor (R$)': parseFloat(d.valor) || 0,
+        'Categoria': (cats.find(c => c.id === d.categoriaId) || {}).nome || '',
+        'Tipo Pagamento': (tipos.find(t => t.id === d.tipoPagamentoId) || {}).nome || '',
+        'Observação': d.obs || ''
+    }));
+
+    const apagar = getData('a_pagar', []).map(d => ({
+        'Vencimento': d.vencimento || '',
+        'Descrição': d.descricao || '',
+        'Valor (R$)': parseFloat(d.valor) || 0,
+        'Categoria': (cats.find(c => c.id === d.categoriaId) || {}).nome || '',
+        'Tipo': d.tipo || '',
+        'Status': d.pago ? 'Pago' : (_statusAPagar(d) === 'vencido' ? 'Vencido' : 'Pendente'),
+        'Tipo Pagamento': d.tipoPagamentoNome || ''
+    }));
+
+    const receitas = getData('receitas', []).map(d => ({
+        'Data': d.data || '',
+        'Descrição': d.descricao || '',
+        'Valor (R$)': parseFloat(d.valor) || 0,
+        'Categoria': (catReceitas.find(c => c.id === d.categoriaId) || {}).nome || '',
+        'Observação': d.obs || ''
+    }));
+
+    // Gera CSV para cada aba e cria XLSX manualmente via base64
+    function toCsv(arr) {
+        if (!arr.length) return '';
+        const headers = Object.keys(arr[0]);
+        const rows = arr.map(row => headers.map(h => {
+            const v = String(row[h] ?? '').replace(/"/g,'""');
+            return `"${v}"`;
+        }).join(','));
+        return [headers.join(','), ...rows].join('\n');
+    }
+
+    // Usa SheetJS via CDN se disponível, caso contrário CSV
+    if (typeof XLSX !== 'undefined') {
+        _exportarComSheetJS(despesas, apagar, receitas);
+    } else {
+        // Carrega SheetJS dinamicamente
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        script.onload = () => _exportarComSheetJS(despesas, apagar, receitas);
+        script.onerror = () => {
+            // Fallback: exporta como CSV zipado
+            _exportarCsvFallback(despesas, apagar, receitas, toCsv);
+        };
+        document.head.appendChild(script);
+    }
+}
+
+function _exportarComSheetJS(despesas, apagar, receitas) {
+    const wb = XLSX.utils.book_new();
+
+    const wsDespesas = XLSX.utils.json_to_sheet(despesas.length ? despesas : [{'Sem dados': ''}]);
+    const wsAPagar   = XLSX.utils.json_to_sheet(apagar.length   ? apagar   : [{'Sem dados': ''}]);
+    const wsReceitas = XLSX.utils.json_to_sheet(receitas.length ? receitas : [{'Sem dados': ''}]);
+
+    // Ajusta largura das colunas
+    [wsDespesas, wsAPagar, wsReceitas].forEach(ws => {
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        const cols = [];
+        for (let C = range.s.c; C <= range.e.c; C++) {
+            let maxLen = 10;
+            for (let R = range.s.r; R <= range.e.r; R++) {
+                const cell = ws[XLSX.utils.encode_cell({r:R, c:C})];
+                if (cell && cell.v) maxLen = Math.max(maxLen, String(cell.v).length + 2);
+            }
+            cols.push({ wch: Math.min(maxLen, 40) });
+        }
+        ws['!cols'] = cols;
+    });
+
+    XLSX.utils.book_append_sheet(wb, wsDespesas, 'Despesas');
+    XLSX.utils.book_append_sheet(wb, wsAPagar,   'A Pagar');
+    XLSX.utils.book_append_sheet(wb, wsReceitas, 'Receitas');
+
+    const nome = `financas-${new Date().toISOString().slice(0,10)}.xlsx`;
+    XLSX.writeFile(wb, nome);
+    toast('Planilha Excel exportada!', 'success');
+}
+
+function _exportarCsvFallback(despesas, apagar, receitas, toCsv) {
+    // Exporta as 3 seções num único CSV separado por títulos
+    const conteudo = [
+        '=== DESPESAS ===', toCsv(despesas), '',
+        '=== A PAGAR ===', toCsv(apagar), '',
+        '=== RECEITAS ===', toCsv(receitas)
+    ].join('\n');
+    const blob = new Blob(['\uFEFF' + conteudo], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `financas-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    toast('Dados exportados como CSV!', 'success');
+}

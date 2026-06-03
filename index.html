@@ -145,67 +145,72 @@
 
                 <!-- ANÁLISE -->
         <div id="content-analise" class="content-section">
-            <!-- KPI CARDS ROW 1 -->
-            <div class="dash-kpi-row">
-                <div class="dash-kpi-card dash-kpi-card--red">
-                    <div class="dash-kpi-icon"><i class="fas fa-credit-card"></i></div>
-                    <div class="dash-kpi-info">
-                        <span class="dash-kpi-label">Cartões de Crédito</span>
-                        <span class="dash-kpi-value" id="kpi-cartoes">R$ 0,00</span>
-                        <span class="dash-kpi-sub" id="kpi-cartoes-sub">0 transações</span>
-                    </div>
-                </div>
-                <div class="dash-kpi-card dash-kpi-card--orange">
-                    <div class="dash-kpi-icon"><i class="fas fa-file-invoice-dollar"></i></div>
-                    <div class="dash-kpi-info">
-                        <span class="dash-kpi-label">Contas Pagas</span>
-                        <span class="dash-kpi-value" id="kpi-pagas">R$ 0,00</span>
-                        <span class="dash-kpi-sub" id="kpi-pagas-sub">0 contas</span>
-                    </div>
-                </div>
-                <div class="dash-kpi-card dash-kpi-card--green">
-                    <div class="dash-kpi-icon"><i class="fas fa-chart-line"></i></div>
-                    <div class="dash-kpi-info">
-                        <span class="dash-kpi-label">Previsão de Gastos</span>
-                        <span class="dash-kpi-value" id="kpi-previsao">R$ 0,00</span>
-                        <span class="dash-kpi-sub" id="kpi-previsao-sub">pendentes + fixos</span>
-                    </div>
-                </div>
-                <div class="dash-kpi-card dash-kpi-card--blue">
-                    <div class="dash-kpi-icon"><i class="fas fa-wallet"></i></div>
-                    <div class="dash-kpi-info">
-                        <span class="dash-kpi-label">Total Despesas</span>
-                        <span class="dash-kpi-value" id="kpi-total-despesas">R$ 0,00</span>
-                        <span class="dash-kpi-sub" id="kpi-total-sub">no período</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- CHARTS ROW -->
-            <div class="dash-charts-row">
-                <!-- Gráfico Pizza por Categoria -->
-                <div class="dash-chart-card dash-chart-card--pizza">
-                    <div class="dash-chart-header">
-                        <h3><i class="fas fa-chart-pie"></i> Gastos por Categoria</h3>
-                    </div>
-                    <div class="dash-chart-body">
-                        <div class="pizza-container" id="pizza-container">
-                            <canvas id="chart-pizza" width="220" height="220"></canvas>
-                            <div id="pizza-legend" class="pizza-legend"></div>
+            <!-- ANALISE TOP ROW: KPIs + Charts lado a lado -->
+            <div class="dash-analise-top">
+                <!-- KPI Cards (2x2 grid, alinhado com pizza) -->
+                <div class="dash-kpi-col">
+                    <div class="dash-kpi-grid">
+                        <div class="dash-kpi-card dash-kpi-card--red">
+                            <div class="dash-kpi-icon"><i class="fas fa-credit-card"></i></div>
+                            <div class="dash-kpi-info">
+                                <span class="dash-kpi-label">Cartões</span>
+                                <span class="dash-kpi-value" id="kpi-cartoes">R$ 0,00</span>
+                                <span class="dash-kpi-sub" id="kpi-cartoes-sub">0 transações</span>
+                            </div>
                         </div>
-                        <div id="pizza-empty" class="dash-empty hidden">
-                            <i class="fas fa-chart-pie"></i><p>Sem dados para o período</p>
+                        <div class="dash-kpi-card dash-kpi-card--orange">
+                            <div class="dash-kpi-icon"><i class="fas fa-file-invoice-dollar"></i></div>
+                            <div class="dash-kpi-info">
+                                <span class="dash-kpi-label">Contas Pagas</span>
+                                <span class="dash-kpi-value" id="kpi-pagas">R$ 0,00</span>
+                                <span class="dash-kpi-sub" id="kpi-pagas-sub">0 contas</span>
+                            </div>
+                        </div>
+                        <div class="dash-kpi-card dash-kpi-card--green">
+                            <div class="dash-kpi-icon"><i class="fas fa-chart-line"></i></div>
+                            <div class="dash-kpi-info">
+                                <span class="dash-kpi-label">Previsão</span>
+                                <span class="dash-kpi-value" id="kpi-previsao">R$ 0,00</span>
+                                <span class="dash-kpi-sub" id="kpi-previsao-sub">pendentes + fixos</span>
+                            </div>
+                        </div>
+                        <div class="dash-kpi-card dash-kpi-card--blue">
+                            <div class="dash-kpi-icon"><i class="fas fa-wallet"></i></div>
+                            <div class="dash-kpi-info">
+                                <span class="dash-kpi-label">Total Despesas</span>
+                                <span class="dash-kpi-value" id="kpi-total-despesas">R$ 0,00</span>
+                                <span class="dash-kpi-sub" id="kpi-total-sub">no período</span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 10 Maiores Gastos excluindo cartão -->
-                <div class="dash-chart-card dash-chart-card--top10">
-                    <div class="dash-chart-header">
-                        <h3><i class="fas fa-list-ol"></i> Top 10 Gastos (sem cartão)</h3>
+                <!-- Charts (pizza + top10) -->
+                <div class="dash-charts-col">
+                    <!-- Gráfico Pizza por Categoria -->
+                    <div class="dash-chart-card dash-chart-card--pizza">
+                        <div class="dash-chart-header">
+                            <h3><i class="fas fa-chart-pie"></i> Gastos por Categoria</h3>
+                        </div>
+                        <div class="dash-chart-body">
+                            <div class="pizza-container" id="pizza-container">
+                                <canvas id="chart-pizza" width="220" height="220"></canvas>
+                                <div id="pizza-legend" class="pizza-legend"></div>
+                            </div>
+                            <div id="pizza-empty" class="dash-empty hidden">
+                                <i class="fas fa-chart-pie"></i><p>Sem dados para o período</p>
+                            </div>
+                        </div>
                     </div>
-                    <div class="dash-chart-body" id="top10-lista">
-                        <div class="dash-empty"><i class="fas fa-receipt"></i><p>Sem despesas no período</p></div>
+
+                    <!-- 10 Maiores Gastos excluindo cartão -->
+                    <div class="dash-chart-card dash-chart-card--top10">
+                        <div class="dash-chart-header">
+                            <h3><i class="fas fa-list-ol"></i> Top 10 Gastos (sem cartão)</h3>
+                        </div>
+                        <div class="dash-chart-body" id="top10-lista">
+                            <div class="dash-empty"><i class="fas fa-receipt"></i><p>Sem despesas no período</p></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -369,6 +374,35 @@
                     </div>
                     <div class="dados-card-body">
                         <div id="lista-metas" class="dados-lista"><p class="dados-empty">Nenhuma meta cadastrada ainda.</p></div>
+                    </div>
+                </div>
+
+                <!-- BACKUP & RESTAURAÇÃO -->
+                <div class="dados-card dados-card--wide" id="card-backup">
+                    <div class="dados-card-header">
+                        <div class="dados-card-icon" style="background:linear-gradient(135deg,#1abc9c,#16a085);"><i class="fas fa-database"></i></div>
+                        <div><h3 class="dados-card-title">Backup &amp; Restauração</h3><p class="dados-card-subtitle">Salve ou restaure seus dados</p></div>
+                    </div>
+                    <div class="dados-card-body">
+                        <div class="backup-actions">
+                            <div class="backup-group">
+                                <p class="backup-label"><i class="fas fa-file-code" style="color:#1abc9c"></i> <strong>Backup JSON</strong> — todos os dados do sistema</p>
+                                <div class="backup-btns">
+                                    <button class="btn-backup btn-backup--export" onclick="exportarBackupJSON()"><i class="fas fa-download"></i> Exportar JSON</button>
+                                    <label class="btn-backup btn-backup--import">
+                                        <i class="fas fa-upload"></i> Restaurar JSON
+                                        <input type="file" id="input-restaurar-json" accept=".json" style="display:none" onchange="importarBackupJSON(this)">
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="backup-divider"></div>
+                            <div class="backup-group">
+                                <p class="backup-label"><i class="fas fa-file-excel" style="color:#27ae60"></i> <strong>Exportar Excel</strong> — despesas, a pagar e receitas</p>
+                                <div class="backup-btns">
+                                    <button class="btn-backup btn-backup--excel" onclick="exportarExcel()"><i class="fas fa-file-excel"></i> Baixar Planilha</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
