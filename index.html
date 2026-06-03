@@ -129,7 +129,7 @@
                     <span class="notif-badge hidden" id="notif-badge">0</span>
                 </button>
             </div>
-            <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> Sair</button>
+            <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> <span class="logout-text">Sair</span></button>
         </header>
 
         <!-- PAINEL DE NOTIFICAÇÕES FLUTUANTE -->
@@ -375,6 +375,21 @@
             </div>
         </div>
 
+        <!-- PREVISÃO -->
+        <div id="content-previsao" class="content-section hidden">
+            <div class="previsao-placeholder">
+                <div class="previsao-placeholder__icon">🔮</div>
+                <h2 class="previsao-placeholder__title">Previsão Financeira</h2>
+                <p class="previsao-placeholder__desc">As funcionalidades desta página serão implementadas em breve.</p>
+                <div class="previsao-placeholder__badges">
+                    <span class="previsao-badge"><i class="fas fa-chart-line"></i> Projeções</span>
+                    <span class="previsao-badge"><i class="fas fa-calendar-alt"></i> Planejamento</span>
+                    <span class="previsao-badge"><i class="fas fa-bullseye"></i> Metas</span>
+                    <span class="previsao-badge"><i class="fas fa-robot"></i> Inteligência</span>
+                </div>
+            </div>
+        </div>
+
         <!-- CONFIGURAÇÕES -->
         <div id="content-configuracoes" class="content-section hidden">
             <div class="content-body">
@@ -396,12 +411,13 @@
 
     <nav id="sidebar">
         <ul class="menu">
-            <li class="menu-item active" onclick="mudarAba('Análise','analise',this)"><span class="menu-icon">📈</span><span class="menu-text">Análise</span></li>
-            <li class="menu-item" onclick="mudarAba('Despesas','despesas',this)"><span class="menu-icon">💰</span><span class="menu-text">Despesas</span></li>
-            <li class="menu-item" onclick="mudarAba('A Pagar','a-pagar',this)"><span class="menu-icon">💸</span><span class="menu-text">A Pagar</span></li>
-            <li class="menu-item" onclick="mudarAba('Receita','receita',this)"><span class="menu-icon">📥</span><span class="menu-text">Receita</span></li>
-            <li class="menu-item" onclick="mudarAba('Dados','dados',this)"><span class="menu-icon">📊</span><span class="menu-text">Dados</span></li>
-            <li class="menu-item" onclick="mudarAba('Configurações','configuracoes',this)"><span class="menu-icon">⚙️</span><span class="menu-text">Configurações</span></li>
+            <li class="menu-item active" data-color="#3498db" onclick="mudarAba('Análise','analise',this)"><span class="menu-icon">📈</span><span class="menu-text">Análise</span></li>
+            <li class="menu-item" data-color="#e74c3c" onclick="mudarAba('Despesas','despesas',this)"><span class="menu-icon">💰</span><span class="menu-text">Despesas</span></li>
+            <li class="menu-item" data-color="#f39c12" onclick="mudarAba('A Pagar','a-pagar',this)"><span class="menu-icon">💸</span><span class="menu-text">A Pagar</span></li>
+            <li class="menu-item" data-color="#2ecc71" onclick="mudarAba('Receita','receita',this)"><span class="menu-icon">📥</span><span class="menu-text">Receita</span></li>
+            <li class="menu-item" data-color="#9b59b6" onclick="mudarAba('Dados','dados',this)"><span class="menu-icon">📊</span><span class="menu-text">Dados</span></li>
+            <li class="menu-item" data-color="#e67e22" onclick="mudarAba('Previsão','previsao',this)"><span class="menu-icon">🔮</span><span class="menu-text">Previsão</span></li>
+            <li class="menu-item" data-color="#1abc9c" onclick="mudarAba('Configurações','configuracoes',this)"><span class="menu-icon">⚙️</span><span class="menu-text">Configurações</span></li>
         </ul>
         <div class="sidebar-footer">ver 9.0</div>
     </nav>

@@ -94,11 +94,14 @@ function mudarAba(nome, id, el) {
     document.getElementById('page-title').innerHTML = `<span class="title-icon">${icon}</span><span class="title-text">${nome}</span>`;
     document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
     el.classList.add('active');
+    // Propaga cor do menu ativo para bordas dos campos nos modais
+    const cor = el.dataset.color || '#3498db';
+    document.documentElement.style.setProperty('--modal-accent', cor);
     document.querySelectorAll('.content-section').forEach(s => s.classList.add('hidden'));
     document.getElementById('content-' + id).classList.remove('hidden');
     const renders = {
         analise: renderizarAnalise, despesas: renderizarDespesas, 'a-pagar': renderizarAPagar,
-        receita: renderizarReceitas, dados: renderizarDados, configuracoes: renderizarConfiguracoes
+        receita: renderizarReceitas, dados: renderizarDados, previsao: renderizarPrevisao, configuracoes: renderizarConfiguracoes
     };
     if (renders[id]) renders[id]();
     setTimeout(atualizarIconeNotificacao, 200);
@@ -180,6 +183,16 @@ function toggleOcultarValores() {
 // GATILHO DE ARRANQUE DO SISTEMA
 // ==========================================
 window.addEventListener('DOMContentLoaded', () => {
+    // 0. Aplicar cores CSS vars nos itens do menu lateral
+    document.querySelectorAll('.menu-item[data-color]').forEach(item => {
+        const c = item.dataset.color;
+        item.style.setProperty('--item-color', c);
+        item.style.setProperty('--item-bg', c + '1a'); // hex 1a ≈ 10% opacity
+    });
+    // Cor inicial do accent (aba Análise = azul)
+    const activeItem = document.querySelector('.menu-item.active[data-color]');
+    if (activeItem) document.documentElement.style.setProperty('--modal-accent', activeItem.dataset.color);
+
     // 1. Lembrar a preferência do Modo Privacidade
     if (localStorage.getItem('valoresOcultos') === 'true') {
         document.body.classList.add('modo-oculto');
@@ -394,7 +407,230 @@ function toggleNotifPanel() {
     panel.classList.toggle('hidden');
 }
 
+
 function fecharNotifPanel() {
     const panel = document.getElementById('notif-panel');
     if (panel) panel.classList.add('hidden');
 }
+
+// ==========================================
+// NAVEGAÇÃO POR ENTER NOS MODAIS
+// ==========================================
+// NAVEGAÇÃO POR ENTER + SELECTS COM DROPDOWN CUSTOMIZADO
+// ==========================================
+(function _instalarNavegacaoEnter() {
+    const FOCUSABLE = 'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])';
+
+    // ── Estado do dropdown customizado ──────────────────────────────────────
+    let _dropEl     = null;   // <select> que originou o dropdown
+    let _dropDiv    = null;   // div flutuante com as opções
+    let _dropIdx    = -1;     // índice da opção destacada
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function _getCampos(modal) {
+        return Array.from(modal.querySelectorAll(FOCUSABLE)).filter(f => {
+            if (f.offsetParent === null) return false;
+            if (f.closest('[style*="display:none"], [style*="display: none"]')) return false;
+            return true;
+        });
+    }
+
+    function _avancar(modal, el) {
+        const campos = _getCampos(modal);
+        const idx    = campos.indexOf(el);
+        const prox   = campos[idx + 1];
+        if (prox) {
+            prox.focus();
+            if (prox.tagName === 'SELECT') _abrirDropdown(prox);
+        } else {
+            const btn = modal.querySelector('.btn-save, button[onclick*="salvar"], button[type="submit"]');
+            if (btn) btn.click();
+        }
+    }
+
+    // ── Dropdown customizado ─────────────────────────────────────────────────
+    function _fecharDropdown() {
+        if (_dropDiv) { _dropDiv.remove(); _dropDiv = null; }
+        _dropEl  = null;
+        _dropIdx = -1;
+    }
+
+    function _abrirDropdown(sel) {
+        _fecharDropdown();
+        _dropEl = sel;
+
+        const rect = sel.getBoundingClientRect();
+        const div  = document.createElement('div');
+        div.className = 'custom-select-dropdown';
+        div.style.cssText = `
+            position: fixed;
+            z-index: 99999;
+            left: ${rect.left}px;
+            top: ${rect.bottom + 2}px;
+            min-width: ${rect.width}px;
+            max-width: ${Math.max(rect.width, 280)}px;
+            background: #fff;
+            border: 1px solid #d0d6de;
+            border-radius: 10px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.16);
+            overflow: hidden;
+            max-height: 280px;
+            overflow-y: auto;
+        `;
+
+        const opts = Array.from(sel.options);
+        let selectedIdx = sel.selectedIndex >= 0 ? sel.selectedIndex : 0;
+
+        opts.forEach((opt, i) => {
+            const item = document.createElement('div');
+            item.className = 'custom-select-item';
+            item.textContent = opt.text;
+            item.dataset.idx = i;
+            item.style.cssText = `
+                padding: 10px 14px;
+                cursor: pointer;
+                font-size: 14px;
+                color: #2c3e50;
+                border-left: 3px solid transparent;
+                transition: background 0.15s;
+            `;
+            if (i === selectedIdx) {
+                item.style.background = '#ebf5fb';
+                item.style.borderLeftColor = '#3498db';
+                item.style.fontWeight = '600';
+                _dropIdx = i;
+            }
+            item.addEventListener('mouseenter', () => _highlight(i));
+            item.addEventListener('click', () => _confirmar(i));
+            div.appendChild(item);
+        });
+
+        document.body.appendChild(div);
+        _dropDiv = div;
+
+        // Scroll para item selecionado
+        const highlighted = div.querySelector(`[data-idx="${selectedIdx}"]`);
+        if (highlighted) highlighted.scrollIntoView({ block: 'nearest' });
+    }
+
+    function _highlight(i) {
+        if (!_dropDiv) return;
+        _dropIdx = i;
+        Array.from(_dropDiv.children).forEach((item, j) => {
+            if (j === i) {
+                item.style.background = '#ebf5fb';
+                item.style.borderLeftColor = '#3498db';
+                item.style.fontWeight = '600';
+            } else {
+                item.style.background = '';
+                item.style.borderLeftColor = 'transparent';
+                item.style.fontWeight = '';
+            }
+        });
+    }
+
+    function _confirmar(i) {
+        if (!_dropEl) return;
+        const prev = _dropEl.value;
+        _dropEl.selectedIndex = i;
+        // Dispara change se o valor mudou
+        if (_dropEl.value !== prev || true) {
+            _dropEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const modal = _dropEl.closest('.modal-overlay, .modal-box');
+        const sel   = _dropEl;
+        _fecharDropdown();
+        if (modal) _avancar(modal, sel);
+    }
+
+    // ── Evento keydown global ────────────────────────────────────────────────
+    document.addEventListener('keydown', function (e) {
+        // Navegação dentro do dropdown aberto
+        if (_dropDiv) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const next = Math.min(_dropIdx + 1, _dropEl.options.length - 1);
+                _highlight(next);
+                _dropDiv.children[next]?.scrollIntoView({ block: 'nearest' });
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prev = Math.max(_dropIdx - 1, 0);
+                _highlight(prev);
+                _dropDiv.children[prev]?.scrollIntoView({ block: 'nearest' });
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (_dropIdx >= 0) _confirmar(_dropIdx);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                const sel = _dropEl;
+                _fecharDropdown();
+                sel?.focus();
+                return;
+            }
+            // Teclas de letra: busca opção que começa com a letra
+            if (e.key.length === 1) {
+                const letra = e.key.toLowerCase();
+                const opts  = Array.from(_dropEl.options);
+                const start = (_dropIdx + 1) % opts.length;
+                for (let d = 0; d < opts.length; d++) {
+                    const k = (start + d) % opts.length;
+                    if (opts[k].text.toLowerCase().startsWith(letra)) {
+                        _highlight(k);
+                        _dropDiv.children[k]?.scrollIntoView({ block: 'nearest' });
+                        break;
+                    }
+                }
+                return;
+            }
+            return;
+        }
+
+        if (e.key !== 'Enter') return;
+
+        const el    = e.target;
+        const modal = el.closest('.modal-overlay, .modal-box');
+        if (!modal) return;
+
+        // Textarea: Enter = nova linha
+        if (el.tagName === 'TEXTAREA') return;
+        // Checkbox/radio: padrão
+        if (el.type === 'checkbox' || el.type === 'radio') return;
+
+        // Select com foco: abre dropdown customizado
+        if (el.tagName === 'SELECT') {
+            e.preventDefault();
+            _abrirDropdown(el);
+            return;
+        }
+
+        e.preventDefault();
+        _avancar(modal, el);
+    });
+
+    // Fecha dropdown ao clicar fora
+    document.addEventListener('mousedown', function (e) {
+        if (_dropDiv && !_dropDiv.contains(e.target) && e.target !== _dropEl) {
+            _fecharDropdown();
+        }
+    });
+
+    // Fecha dropdown ao rolar a página
+    document.addEventListener('scroll', _fecharDropdown, true);
+
+    // Ao focar um select com Tab, abre dropdown automaticamente
+    document.addEventListener('focusin', function (e) {
+        const el    = e.target;
+        const modal = el.closest('.modal-overlay, .modal-box');
+        if (!modal) return;
+        if (el.tagName === 'SELECT') {
+            // Pequeno delay para Tab terminar de mover o foco
+            setTimeout(() => { if (document.activeElement === el) _abrirDropdown(el); }, 80);
+        }
+    });
+})();

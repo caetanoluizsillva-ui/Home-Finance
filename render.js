@@ -39,6 +39,14 @@ function salvarAnoConfig(val) {
     renderizarAnalise();
 }
 
+// ==========================================
+// PREVISÃO — placeholder (funções futuras)
+// ==========================================
+function renderizarPrevisao() {
+    // Página reservada para funcionalidades futuras.
+    // Nenhuma renderização necessária por enquanto.
+}
+
 function renderizarConfiguracoes() {
     const sel = document.getElementById('config-ano-select');
     if (!sel) return;
