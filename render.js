@@ -746,6 +746,486 @@ function excluirReceita(id) {
 }
 
 // ==========================================
+// CARTÕES DE CRÉDITO — Página dedicada
+// ==========================================
+// Chave de storage: 'gastos_cartao'
+// Cada item: { id, cartaoId, descricao, valor, data, parcelas, categoriaId, local, obs }
+// Regra de negócio:
+//   Ao salvar/editar gastos, recalcula automaticamente a conta a pagar do cartão
+//   no mês de vencimento. A conta a pagar armazena o TOTAL da fatura (não os itens).
+//   ID da conta a pagar: 'fatura_<cartaoId>_<AAAA>_<MM>'
+
+// Estado interno da aba Cartões
+let _ccCartaoSel = null;  // id do cartão selecionado
+let _ccMesSel    = null;  // mês da fatura (0-11 ou null = mês atual)
+let _ccAnoSel    = null;
+
+// ── Helpers de fatura ─────────────────────────────────────────────────────────
+
+/**
+ * Retorna o mês/ano de vencimento de uma compra num cartão.
+ * Regra: se a data da compra for ATÉ o dia de vencimento do cartão no mês,
+ * a fatura fecha naquele mês. Se for DEPOIS, cai na fatura do mês seguinte.
+ */
+function _ccMesFatura(dataCompraISO, cartao) {
+    const [y, m, d] = dataCompraISO.split('-').map(Number);
+    const diaVenc = parseInt(cartao.vencimento) || 1;
+    // Se compra for após o dia de vencimento, cai no mês seguinte
+    let mesF = m - 1; // 0-based
+    let anoF = y;
+    if (d > diaVenc) {
+        mesF++;
+        if (mesF > 11) { mesF = 0; anoF++; }
+    }
+    return { mes: mesF, ano: anoF };
+}
+
+/**
+ * Retorna a data ISO de vencimento da fatura para um dado mês/ano e cartão.
+ */
+function _ccDataVencFatura(mes, ano, cartao) {
+    const dia = parseInt(cartao.vencimento) || 1;
+    // Garante dia válido no mês (ex: dia 31 em fevereiro)
+    const dataObj = new Date(ano, mes, dia);
+    // Se dia inválido, JS avança para o próximo mês; usamos o último dia do mês
+    const diaReal = dataObj.getDate() === dia ? dia :
+        new Date(ano, mes + 1, 0).getDate();
+    return `${ano}-${String(mes + 1).padStart(2,'0')}-${String(diaReal).padStart(2,'0')}`;
+}
+
+/**
+ * Calcula o total da fatura de um cartão num dado mês/ano.
+ */
+function _ccTotalFatura(cartaoId, mes, ano) {
+    const gastos = getData('gastos_cartao');
+    const cartao = getData('cartoes').find(c => c.id === cartaoId);
+    if (!cartao) return 0;
+    return gastos
+        .filter(g => g.cartaoId === cartaoId)
+        .reduce((soma, g) => {
+            // Cada parcela cai no seu mês de fatura
+            const nParc = parseInt(g.parcelas) || 1;
+            const valorParcela = (parseFloat(g.valor) || 0) / nParc;
+            for (let p = 0; p < nParc; p++) {
+                // Calcula a data de referência para esta parcela (mês + p)
+                const [y, m, d] = g.data.split('-').map(Number);
+                const dataParc = new Date(y, m - 1 + p, d);
+                const dataISO  = dataParc.toISOString().slice(0, 10);
+                const { mes: mF, ano: aF } = _ccMesFatura(dataISO, cartao);
+                if (mF === mes && aF === ano) soma += valorParcela;
+            }
+            return soma;
+        }, 0);
+}
+
+/**
+ * Recalcula e upsert a conta a pagar da fatura de um cartão no mês/ano.
+ * Chama isso sempre que um gasto é salvo ou excluído.
+ */
+function _ccSincronizarAPagar(cartaoId, mes, ano) {
+    const cartao = getData('cartoes').find(c => c.id === cartaoId);
+    if (!cartao) return;
+
+    const total      = _ccTotalFatura(cartaoId, mes, ano);
+    const faturaId   = `fatura_${cartaoId}_${ano}_${String(mes + 1).padStart(2,'0')}`;
+    const vencimento = _ccDataVencFatura(mes, ano, cartao);
+    const arr        = getData('a_pagar');
+    const idx        = arr.findIndex(x => x.id === faturaId);
+
+    if (total <= 0) {
+        // Sem gastos nesse mês: remove a conta a pagar se existir e não estiver paga
+        if (idx > -1 && !arr[idx].pago) {
+            arr.splice(idx, 1);
+            localStorage.setItem('a_pagar', JSON.stringify(arr));
+        }
+        return;
+    }
+
+    const contaFatura = {
+        id: faturaId,
+        descricao: `Fatura ${cartao.nome} — ${MESES_ABREV[mes]}/${String(ano).slice(2)}`,
+        valor: Math.round(total * 100) / 100,
+        vencimento,
+        categoriaId: '',
+        tipoPagamentoVal: `cartao_${cartaoId}`,
+        tipoPagamentoNome: cartao.nome,
+        tipo: 'Único',
+        parcelas: null,
+        obs: `Gerado automaticamente a partir dos gastos do cartão`,
+        pago: idx > -1 ? arr[idx].pago : false,     // preserva status pago
+        dataPagamento: idx > -1 ? arr[idx].dataPagamento : null,
+        _faturaCartao: true,
+        _cartaoId: cartaoId
+    };
+
+    if (idx > -1) {
+        // Só atualiza valor/vencimento se ainda não estiver pago
+        if (!arr[idx].pago) arr[idx] = contaFatura;
+    } else {
+        arr.push(contaFatura);
+    }
+    localStorage.setItem('a_pagar', JSON.stringify(arr));
+}
+
+/**
+ * Recalcula TODAS as faturas de um cartão (varre todos os gastos).
+ */
+function _ccRecalcularTodoCartao(cartaoId) {
+    const cartao = getData('cartoes').find(c => c.id === cartaoId);
+    if (!cartao) return;
+    const gastos = getData('gastos_cartao').filter(g => g.cartaoId === cartaoId);
+    const mesesAfetados = new Set();
+    gastos.forEach(g => {
+        const nParc = parseInt(g.parcelas) || 1;
+        for (let p = 0; p < nParc; p++) {
+            const [y, m, d] = g.data.split('-').map(Number);
+            const dataParc = new Date(y, m - 1 + p, d);
+            const { mes, ano } = _ccMesFatura(dataParc.toISOString().slice(0, 10), cartao);
+            mesesAfetados.add(`${ano}_${mes}`);
+        }
+    });
+    mesesAfetados.forEach(chave => {
+        const [ano, mes] = chave.split('_').map(Number);
+        _ccSincronizarAPagar(cartaoId, mes, ano);
+    });
+}
+
+// ── Renderização da grade de cartões ─────────────────────────────────────────
+
+function renderizarCartoes() {
+    const cartoes = getData('cartoes');
+    const grade   = document.getElementById('cartoes-grade');
+    const painel  = document.getElementById('cc-painel');
+    if (!grade) return;
+
+    // Inicializa mês/ano se ainda não definido
+    if (_ccMesSel === null) {
+        _ccMesSel = new Date().getMonth();
+        _ccAnoSel = new Date().getFullYear();
+    }
+
+    if (cartoes.length === 0) {
+        grade.innerHTML = `
+        <div class="cc-empty">
+            <i class="fas fa-credit-card"></i>
+            <p>Nenhum cartão cadastrado.</p>
+            <small>Adicione cartões na aba <strong>Dados</strong> para começar.</small>
+        </div>`;
+        if (painel) painel.classList.add('hidden');
+        return;
+    }
+
+    grade.innerHTML = cartoes.map(c => {
+        const totalMes = _ccTotalFatura(c.id, _ccMesSel, _ccAnoSel);
+        const pct      = c.limite > 0 ? Math.min(100, Math.round(totalMes / c.limite * 100)) : 0;
+        const corBar   = pct >= 90 ? '#e74c3c' : pct >= 70 ? '#f39c12' : '#2ecc71';
+        const isAtivo  = _ccCartaoSel === c.id;
+        return `
+        <div class="cc-card ${isAtivo ? 'cc-card--ativo' : ''}"
+             style="--cc-cor:${c.cor||'#3498db'}"
+             onclick="ccSelecionarCartao('${c.id}')">
+            <div class="cc-card-topo">
+                <div class="cc-card-bandeira">${_ccIconeBandeira(c.bandeira)}</div>
+                <span class="cc-card-nome">${c.nome}</span>
+            </div>
+            <div class="cc-card-numero">${c.digitos ? '•••• •••• •••• ' + c.digitos : '•••• •••• •••• ••••'}</div>
+            <div class="cc-card-rodape">
+                <div>
+                    <div class="cc-card-label">Fatura ${MESES_ABREV[_ccMesSel]}/${String(_ccAnoSel).slice(2)}</div>
+                    <div class="cc-card-fatura valor-dinheiro">${brl(totalMes)}</div>
+                </div>
+                ${c.limite > 0 ? `<div style="text-align:right">
+                    <div class="cc-card-label">Limite</div>
+                    <div class="cc-card-fatura">${brl(c.limite)}</div>
+                </div>` : ''}
+            </div>
+            ${c.limite > 0 ? `<div class="cc-card-bar-wrap">
+                <div class="cc-card-bar-fill" style="width:${pct}%;background:${corBar}"></div>
+            </div>` : ''}
+        </div>`;
+    }).join('');
+
+    // Se havia um cartão selecionado, re-renderiza o painel
+    if (_ccCartaoSel) {
+        _ccRenderizarPainel(_ccCartaoSel);
+    } else if (painel) {
+        painel.classList.add('hidden');
+    }
+
+    _ccAtualizarMesLabel();
+}
+
+function _ccIconeBandeira(bandeira) {
+    const map = { Visa:'VISA', Mastercard:'MC', Elo:'ELO', Amex:'AMEX', Hipercard:'HIPER', Outra:'💳' };
+    return map[bandeira] || '💳';
+}
+
+function ccSelecionarCartao(id) {
+    _ccCartaoSel = id;
+    renderizarCartoes(); // recarrega grade com destaque
+}
+
+// ── Painel de detalhes ────────────────────────────────────────────────────────
+
+function _ccRenderizarPainel(cartaoId) {
+    const cartao = getData('cartoes').find(c => c.id === cartaoId);
+    const painel = document.getElementById('cc-painel');
+    if (!cartao || !painel) return;
+
+    painel.classList.remove('hidden');
+
+    // Chip e info
+    const chip = document.getElementById('cc-painel-chip');
+    if (chip) { chip.textContent = '💳'; chip.style.background = cartao.cor || '#3498db'; }
+    _set('cc-painel-nome', cartao.nome);
+    _set('cc-painel-info', `${cartao.bandeira || ''}${cartao.digitos ? ' •••• ' + cartao.digitos : ''}${cartao.vencimento ? ' · Vence dia ' + cartao.vencimento : ''}`);
+
+    // Totais
+    const total    = _ccTotalFatura(cartaoId, _ccMesSel, _ccAnoSel);
+    const dispBrl  = cartao.limite > 0 ? brl(cartao.limite - total) : '—';
+    const vencLabel = cartao.vencimento
+        ? `Dia ${cartao.vencimento} de ${MESES_ABREV[_ccMesSel]}/${String(_ccAnoSel).slice(2)}`
+        : 'Não definido';
+
+    _set('cc-fatura-valor', brl(total));
+    _set('cc-limite-disp', dispBrl);
+    _set('cc-venc-label', vencLabel);
+
+    // Barra de limite
+    const barWrap = document.getElementById('cc-limite-bar-wrap');
+    const barFill = document.getElementById('cc-limite-bar-fill');
+    const barLabel = document.getElementById('cc-limite-bar-label');
+    if (cartao.limite > 0) {
+        const pct  = Math.min(100, Math.round(total / cartao.limite * 100));
+        const cor  = pct >= 90 ? '#e74c3c' : pct >= 70 ? '#f39c12' : '#2ecc71';
+        if (barWrap)  barWrap.style.display = '';
+        if (barFill)  { barFill.style.width = pct + '%'; barFill.style.background = cor; }
+        if (barLabel) barLabel.textContent  = `${pct}% do limite utilizado (${brl(total)} de ${brl(cartao.limite)})`;
+    } else {
+        if (barWrap) barWrap.style.display = 'none';
+    }
+
+    _ccAtualizarMesLabel();
+    _ccRenderizarGastos(cartaoId);
+}
+
+function _ccAtualizarMesLabel() {
+    const el = document.getElementById('cc-mes-label');
+    if (el) el.textContent = MESES_ABREV[_ccMesSel] + ' ' + _ccAnoSel;
+}
+
+// ── Lista de gastos do cartão no mês ─────────────────────────────────────────
+
+function _ccRenderizarGastos(cartaoId) {
+    const lista    = document.getElementById('cc-lista-gastos');
+    const totalEl  = document.getElementById('cc-gastos-total');
+    const cats     = getData('cat_despesas');
+    const cartao   = getData('cartoes').find(c => c.id === cartaoId);
+    if (!lista || !cartao) return;
+
+    // Busca gastos cujas PARCELAS caem neste mês/ano
+    const gastosBrutos = getData('gastos_cartao').filter(g => g.cartaoId === cartaoId);
+    const gastosNaMes  = [];
+
+    gastosBrutos.forEach(g => {
+        const nParc = parseInt(g.parcelas) || 1;
+        for (let p = 0; p < nParc; p++) {
+            const [y, m, d] = g.data.split('-').map(Number);
+            const dataParc  = new Date(y, m - 1 + p, d);
+            const dataISO   = dataParc.toISOString().slice(0, 10);
+            const { mes, ano } = _ccMesFatura(dataISO, cartao);
+            if (mes === _ccMesSel && ano === _ccAnoSel) {
+                const valorParcela = (parseFloat(g.valor) || 0) / nParc;
+                gastosNaMes.push({ ...g, _parcela: p + 1, _totalParc: nParc, _valorParcela: valorParcela });
+            }
+        }
+    });
+
+    gastosNaMes.sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+    const total = gastosNaMes.reduce((s, g) => s + g._valorParcela, 0);
+    if (totalEl) totalEl.textContent = brl(total);
+
+    if (gastosNaMes.length === 0) {
+        lista.innerHTML = '<div class="registros-empty"><i class="fas fa-receipt"></i><p>Nenhum gasto nesta fatura.</p></div>';
+        return;
+    }
+
+    lista.innerHTML = gastosNaMes.map(g => {
+        const cat   = cats.find(c => c.id === g.categoriaId);
+        const icone = cat ? cat.icone : '🛍️';
+        const cor   = cat ? cat.cor   : '#95a5a6';
+        const parcelaLabel = g._totalParc > 1
+            ? `<span class="reg-tipo-tag">${g._parcela}/${g._totalParc}</span>` : '';
+        const sub = [_fmtData(g.data), g.local].filter(Boolean).join(' · ');
+        return `
+        <div class="reg-item">
+            <div class="reg-icon" style="background:${cor}22;color:${cor}">${icone}</div>
+            <div class="reg-info">
+                <span class="reg-nome">${g.descricao}</span>
+                <span class="reg-sub">${sub}</span>
+            </div>
+            <div class="reg-meio">
+                ${cat ? `<span class="reg-tipo-tag">${cat.nome}</span>` : ''}
+                ${parcelaLabel}
+            </div>
+            <span class="reg-valor text-danger valor-dinheiro">${brl(g._valorParcela)}${g._totalParc > 1 ? `<small style="font-size:10px;color:#999;display:block;text-align:right">Total: ${brl(g.valor)}</small>` : ''}</span>
+            <div class="reg-actions">
+                <button class="btn-icon btn-edit" onclick="abrirModalGastoCartao('${g.id}')"><i class="fas fa-pen"></i></button>
+                <button class="btn-icon btn-del"  onclick="excluirGastoCartao('${g.id}')"><i class="fas fa-trash"></i></button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ── Navegação de mês no painel ────────────────────────────────────────────────
+
+function ccNavMes(dir) {
+    if (_ccMesSel === null) { _ccMesSel = new Date().getMonth(); _ccAnoSel = new Date().getFullYear(); }
+    _ccMesSel += dir;
+    if (_ccMesSel < 0)  { _ccMesSel = 11; _ccAnoSel--; }
+    if (_ccMesSel > 11) { _ccMesSel = 0;  _ccAnoSel++; }
+    renderizarCartoes();
+}
+
+function ccAbrirMesPicker() {
+    // Reutiliza o modal de mês picker global com callbacks customizados
+    const grid = document.getElementById('mes-picker-grid');
+    if (!grid) return;
+    grid.innerHTML = MESES_FULL.map((mn, i) =>
+        `<button class="mes-picker-btn${_ccMesSel===i?' mes-picker-ativo':''}" onclick="ccSelecionarMes(${i})">${MESES_ABREV[i]}</button>`
+    ).join('');
+    document.getElementById('modal-mes-picker').classList.remove('hidden');
+}
+
+function ccSelecionarMes(idx) {
+    _ccMesSel = idx;
+    fecharModal('modal-mes-picker');
+    renderizarCartoes();
+}
+
+// ── Modal de gasto ────────────────────────────────────────────────────────────
+
+function abrirModalGastoCartao(id = null) {
+    if (!_ccCartaoSel) { toast('Selecione um cartão primeiro.', 'error'); return; }
+
+    const tit = document.getElementById('modal-gasto-titulo');
+    if (tit) tit.textContent = id ? 'Editar Gasto' : 'Novo Gasto no Cartão';
+
+    // Limpa campos
+    ['gasto-edit-id','gasto-descricao','gasto-local','gasto-obs'].forEach(i => {
+        const el = document.getElementById(i); if (el) el.value = '';
+    });
+    const valEl = document.getElementById('gasto-valor');
+    if (valEl) valEl.value = '';
+    const dtEl = document.getElementById('gasto-data');
+    if (dtEl) dtEl.value = new Date().toISOString().slice(0, 10);
+    const parcEl = document.getElementById('gasto-parcelas');
+    if (parcEl) parcEl.value = '1';
+
+    // Seta o cartão atual
+    const cidEl = document.getElementById('gasto-cartao-id');
+    if (cidEl) cidEl.value = _ccCartaoSel;
+
+    // Popula categorias
+    const catEl = document.getElementById('gasto-categoria');
+    if (catEl) {
+        const cats = getData('cat_despesas');
+        catEl.innerHTML = '<option value="">Sem categoria</option>' +
+            cats.map(c => `<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
+    }
+
+    // Se edição, carrega dados
+    if (id) {
+        const g = getData('gastos_cartao').find(x => x.id === id);
+        if (g) {
+            document.getElementById('gasto-edit-id').value   = g.id;
+            document.getElementById('gasto-descricao').value = g.descricao;
+            document.getElementById('gasto-valor').value     = g.valor;
+            document.getElementById('gasto-data').value      = g.data;
+            document.getElementById('gasto-categoria').value = g.categoriaId || '';
+            document.getElementById('gasto-parcelas').value  = g.parcelas || '1';
+            document.getElementById('gasto-local').value     = g.local || '';
+            document.getElementById('gasto-obs').value       = g.obs || '';
+        }
+    }
+
+    document.getElementById('modal-gasto-cartao').classList.remove('hidden');
+}
+
+function salvarGastoCartao() {
+    const desc     = document.getElementById('gasto-descricao').value.trim();
+    const valor    = parseFloat(document.getElementById('gasto-valor').value);
+    const data     = document.getElementById('gasto-data').value;
+    const cartaoId = document.getElementById('gasto-cartao-id').value;
+
+    if (!desc)  { toast('Informe a descrição.', 'error'); return; }
+    if (!valor) { toast('Informe o valor.', 'error'); return; }
+    if (!data)  { toast('Informe a data.', 'error'); return; }
+
+    const item = {
+        id:          document.getElementById('gasto-edit-id').value || uid(),
+        cartaoId,
+        descricao:   desc,
+        valor,
+        data,
+        parcelas:    parseInt(document.getElementById('gasto-parcelas').value) || 1,
+        categoriaId: document.getElementById('gasto-categoria').value,
+        local:       document.getElementById('gasto-local').value,
+        obs:         document.getElementById('gasto-obs').value
+    };
+
+    const arr    = getData('gastos_cartao', []);
+    const editId = document.getElementById('gasto-edit-id').value;
+
+    // Se é edição, precisa recalcular os meses que o item ANTIGO afetava
+    if (editId) {
+        const antigo = arr.find(x => x.id === editId);
+        const idx    = arr.findIndex(x => x.id === editId);
+        if (idx > -1) arr[idx] = item; else arr.push(item);
+        localStorage.setItem('gastos_cartao', JSON.stringify(arr));
+        // Recalcula meses do gasto antigo e do novo
+        if (antigo) _ccRecalcularTodoCartao(antigo.cartaoId);
+        if (item.cartaoId !== (antigo && antigo.cartaoId)) _ccRecalcularTodoCartao(item.cartaoId);
+    } else {
+        arr.push(item);
+        localStorage.setItem('gastos_cartao', JSON.stringify(arr));
+        // Recalcula apenas os meses afetados por este gasto
+        const cartao = getData('cartoes').find(c => c.id === cartaoId);
+        if (cartao) {
+            const nParc = item.parcelas;
+            for (let p = 0; p < nParc; p++) {
+                const [y, m, d] = item.data.split('-').map(Number);
+                const dataParc = new Date(y, m - 1 + p, d);
+                const { mes, ano } = _ccMesFatura(dataParc.toISOString().slice(0, 10), cartao);
+                _ccSincronizarAPagar(cartaoId, mes, ano);
+            }
+        }
+    }
+
+    toast('Gasto salvo!', 'success');
+    fecharModal('modal-gasto-cartao');
+    renderizarCartoes();
+    if (typeof renderizarAPagar === 'function') renderizarAPagar();
+    if (typeof renderizarAnalise === 'function') renderizarAnalise();
+    atualizarIconeNotificacao();
+}
+
+function excluirGastoCartao(id) {
+    if (!confirm('Excluir este gasto?')) return;
+    const arr   = getData('gastos_cartao');
+    const gasto = arr.find(x => x.id === id);
+    if (!gasto) return;
+    localStorage.setItem('gastos_cartao', JSON.stringify(arr.filter(x => x.id !== id)));
+    // Recalcula todas as faturas afetadas
+    _ccRecalcularTodoCartao(gasto.cartaoId);
+    renderizarCartoes();
+    if (typeof renderizarAPagar === 'function') renderizarAPagar();
+    if (typeof renderizarAnalise === 'function') renderizarAnalise();
+    atualizarIconeNotificacao();
+    toast('Gasto excluído.', 'success');
+}
+
+// ==========================================
 // RENDERIZAR DADOS (cartões, categorias, etc.)
 // ==========================================
 function renderizarDados() {

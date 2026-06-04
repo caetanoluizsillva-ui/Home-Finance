@@ -230,9 +230,10 @@ body {
 
 header {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 24px;
+    gap: 10px;
     /* Floating header */
     position: sticky;
     top: 0;
@@ -245,35 +246,13 @@ header {
     border-left: 4px solid var(--modal-accent, #2c3e50);
     border-right: 4px solid var(--modal-accent, #2c3e50);
     box-shadow: 0 4px 20px rgba(44,62,80,0.09), 0 1px 4px rgba(44,62,80,0.05);
-    padding: 12px 18px 10px;
+    padding: 12px 18px;
     margin-left: -4px;
     margin-right: -4px;
 }
-
-/* Linha 1: título + data */
-.header-row--top {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-/* Linha 2: seletor de mês (esquerda) + ações (direita) */
-.header-row--bottom {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-}
-
-.header-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-}
-
 .header-mes-selector {
-    margin: 0;
+    margin-left: auto;
+    margin-right: 8px;
 }
 
 /* Título interativo e dinâmico */
@@ -484,19 +463,13 @@ header {
 
     header {
         margin-bottom: 14px;
-        padding: 8px 12px 7px;
-        gap: 5px;
+        padding: 8px 12px;
+        gap: 6px;
+        flex-wrap: nowrap;
+        overflow: hidden;
         border-radius: 12px;
         margin-left: 0;
         margin-right: 0;
-    }
-
-    .header-row--top {
-        gap: 5px;
-    }
-
-    .header-row--bottom {
-        gap: 4px;
     }
 
     #page-header-title-container {
@@ -555,27 +528,6 @@ header {
         flex-shrink: 0;
     }
 
-    .dados-quick-cards {
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-bottom: 16px;
-    }
-
-    .dados-quick-card {
-        padding: 12px 12px;
-        gap: 10px;
-    }
-
-    .dados-quick-card__icon {
-        width: 38px;
-        height: 38px;
-        font-size: 18px;
-    }
-
-    .dados-quick-card__title {
-        font-size: 13px;
-    }
-
     /* No mobile mostra só o ícone no botão Sair */
     .menu {
         flex-direction: row;
@@ -624,78 +576,6 @@ header {
         display: none;
     }
 }
-/* =========================================
-   PÁGINA DADOS — CARDS DE ACESSO RÁPIDO
-   ========================================= */
-.dados-quick-cards {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 24px;
-}
-
-.dados-quick-card {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    background: #fff;
-    border-radius: 14px;
-    padding: 16px 18px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-    cursor: pointer;
-    border: 1.5px solid transparent;
-    transition: all 0.22s ease;
-}
-.dados-quick-card:hover {
-    box-shadow: 0 6px 24px rgba(0,0,0,0.12);
-    transform: translateY(-2px);
-    border-color: rgba(0,0,0,0.06);
-}
-
-.dados-quick-card__icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    flex-shrink: 0;
-}
-
-.dados-quick-card__info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.dados-quick-card__title {
-    font-size: 14px;
-    font-weight: 700;
-    color: #2c3e50;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.dados-quick-card__sub {
-    font-size: 12px;
-    color: #95a5a6;
-}
-
-.dados-quick-card__arrow {
-    color: #bdc3c7;
-    font-size: 13px;
-    flex-shrink: 0;
-    transition: transform 0.2s, color 0.2s;
-}
-.dados-quick-card:hover .dados-quick-card__arrow {
-    transform: translateX(3px);
-    color: #7f8c8d;
-}
-
 /* =========================================
    PÁGINA DADOS — GRID DE CARDS
    ========================================= */
@@ -1971,6 +1851,19 @@ body.modo-oculto .contas-val {
 }
 
 /* =========================================
+   BOTÃO OCULTAR VALORES — alinhado ao notif-btn
+   ========================================= */
+header > .notif-btn {
+    /* herda os estilos de .notif-btn mas sem o wrapper */
+    flex-shrink: 0;
+}
+
+/* Remove o bloco top-bar-icons caso ainda exista no DOM */
+.top-bar-icons {
+    display: none !important;
+}
+
+/* =========================================
    CUSTOM SELECT DROPDOWN (Enter navigation)
    ========================================= */
 .custom-select-dropdown {
@@ -2060,4 +1953,257 @@ body.modo-oculto .contas-val {
 .previsao-badge:hover {
     border-color: #e67e22;
     color: #e67e22;
+}
+
+/* =========================================
+   PÁGINA CARTÕES DE CRÉDITO
+   ========================================= */
+
+/* Grade de cartões */
+.cc-grade {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    margin-bottom: 28px;
+}
+
+/* Estado vazio */
+.cc-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    color: #bdc3c7;
+}
+.cc-empty i { font-size: 48px; display: block; margin-bottom: 12px; }
+.cc-empty p { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: #95a5a6; }
+.cc-empty small { font-size: 13px; }
+
+/* Card individual */
+.cc-card {
+    background: linear-gradient(135deg, var(--cc-cor, #3498db), color-mix(in srgb, var(--cc-cor, #3498db) 75%, #000));
+    border-radius: 18px;
+    padding: 22px 22px 16px;
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.22s ease, box-shadow 0.22s ease;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    position: relative;
+    overflow: hidden;
+    min-height: 160px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    border: 2.5px solid transparent;
+}
+.cc-card::before {
+    content: '';
+    position: absolute;
+    top: -30px; right: -30px;
+    width: 130px; height: 130px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.10);
+    pointer-events: none;
+}
+.cc-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+}
+.cc-card--ativo {
+    border-color: rgba(255,255,255,0.7);
+    box-shadow: 0 12px 36px rgba(0,0,0,0.22), 0 0 0 3px var(--cc-cor, #3498db);
+    transform: translateY(-4px);
+}
+
+.cc-card-topo {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+.cc-card-bandeira {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 1.5px;
+    background: rgba(255,255,255,0.18);
+    padding: 3px 8px;
+    border-radius: 5px;
+    line-height: 1;
+}
+.cc-card-nome {
+    font-size: 14px;
+    font-weight: 700;
+    opacity: 0.9;
+    text-align: right;
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cc-card-numero {
+    font-size: 13px;
+    letter-spacing: 2.5px;
+    opacity: 0.75;
+    font-family: monospace;
+    margin: 14px 0 8px;
+}
+.cc-card-rodape {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+.cc-card-label {
+    font-size: 10px;
+    opacity: 0.75;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+.cc-card-fatura {
+    font-size: 17px;
+    font-weight: 700;
+}
+.cc-card-bar-wrap {
+    background: rgba(255,255,255,0.20);
+    border-radius: 4px;
+    height: 4px;
+    margin-top: 12px;
+}
+.cc-card-bar-fill {
+    height: 4px;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+/* Painel de detalhes */
+.cc-painel {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.07);
+    overflow: hidden;
+}
+
+.cc-painel-header {
+    background: linear-gradient(135deg, #f8faff 0%, #eef4fb 100%);
+    padding: 22px 24px 18px;
+    border-bottom: 1px solid #eef0f4;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.cc-painel-titulo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.cc-chip-grande {
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.cc-painel-nome {
+    font-size: 20px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0 0 3px;
+}
+
+.cc-painel-info-sub {
+    font-size: 13px;
+    color: #7f8c8d;
+}
+
+.cc-painel-resumo {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    flex-wrap: wrap;
+}
+
+.cc-resumo-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 90px;
+}
+.cc-resumo-label {
+    font-size: 11px;
+    color: #95a5a6;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.cc-resumo-valor {
+    font-size: 17px;
+    font-weight: 700;
+    color: #2c3e50;
+}
+
+.cc-btn-novo-gasto {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* Barra de limite no painel */
+.cc-limite-bar-wrap {
+    padding: 10px 24px 4px;
+    border-bottom: 1px solid #f0f2f5;
+}
+.cc-limite-bar-track {
+    background: #e8ecf0;
+    border-radius: 6px;
+    height: 8px;
+    overflow: hidden;
+    margin-bottom: 5px;
+}
+.cc-limite-bar-fill {
+    height: 8px;
+    border-radius: 6px;
+    transition: width 0.5s ease;
+}
+.cc-limite-bar-label {
+    font-size: 12px;
+    color: #7f8c8d;
+}
+
+/* Filtro de mês no painel */
+.cc-fatura-filtro {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid #f0f2f5;
+    background: #fafbfc;
+}
+.cc-fatura-filtro-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #7f8c8d;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+    .cc-grade {
+        grid-template-columns: 1fr;
+        gap: 14px;
+        margin-bottom: 18px;
+    }
+    .cc-painel-header {
+        flex-direction: column;
+        padding: 16px;
+    }
+    .cc-painel-resumo {
+        gap: 14px;
+    }
+    .cc-resumo-item { min-width: 80px; }
+    .cc-limite-bar-wrap, .cc-fatura-filtro { padding-left: 16px; padding-right: 16px; }
 }

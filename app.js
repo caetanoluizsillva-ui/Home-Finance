@@ -101,7 +101,7 @@ function mudarAba(nome, id, el) {
     document.getElementById('content-' + id).classList.remove('hidden');
     const renders = {
         analise: renderizarAnalise, despesas: renderizarDespesas, 'a-pagar': renderizarAPagar,
-        receita: renderizarReceitas, dados: renderizarDados, previsao: renderizarPrevisao, configuracoes: renderizarConfiguracoes
+        receita: renderizarReceitas, cartoes: renderizarCartoes, dados: renderizarDados, previsao: renderizarPrevisao, configuracoes: renderizarConfiguracoes
     };
     if (renders[id]) renders[id]();
     setTimeout(atualizarIconeNotificacao, 200);
@@ -110,17 +110,6 @@ function mudarAba(nome, id, el) {
 function voltarParaAnalise() {
     mudarAba('Análise','analise', document.querySelector('.menu-item[onclick*="analise"]') || document.querySelector('.menu-item'));
     if (typeof renderizarAnalise === 'function') renderizarAnalise();
-}
-
-// Navega para seções sem item no menu (Previsão, Configurações) a partir dos cards de Dados
-function irParaSecao(nome, id, icon, cor) {
-    document.getElementById('page-title').innerHTML = `<span class="title-icon">${icon}</span><span class="title-text">${nome}</span>`;
-    document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
-    document.documentElement.style.setProperty('--modal-accent', cor);
-    document.querySelectorAll('.content-section').forEach(s => s.classList.add('hidden'));
-    document.getElementById('content-' + id).classList.remove('hidden');
-    const renders = { previsao: renderizarPrevisao, configuracoes: renderizarConfiguracoes };
-    if (renders[id]) renders[id]();
 }
 
 // ==========================================

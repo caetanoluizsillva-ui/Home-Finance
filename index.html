@@ -111,31 +111,25 @@
 <div id="app-screen" class="screen hidden">
     <main id="content-area">
         <header>
-            <div class="header-row header-row--top">
-                <div id="page-header-title-container" onclick="voltarParaAnalise()" title="Clique para voltar para Análise">
-                   <h1 id="page-title"><span class="title-icon">📈</span><span class="title-text">Análise</span></h1>
-                </div>
-                <span id="header-data-hoje" class="header-data-hoje"></span>
+            <div id="page-header-title-container" onclick="voltarParaAnalise()" title="Clique para voltar para Análise">
+               <h1 id="page-title"><span class="title-icon">📈</span><span class="title-text">Análise</span></h1>
             </div>
-            <div class="header-row header-row--bottom">
-                <div class="header-mes-selector">
-                    <button class="mes-nav-btn" onclick="navegarMes(-1)"><i class="fas fa-chevron-left"></i></button>
-                    <span id="header-mes-label" onclick="abrirMesPicker()" title="Selecionar mês" style="cursor:pointer">Todos</span>
-                    <button class="mes-nav-btn" onclick="navegarMes(1)"><i class="fas fa-chevron-right"></i></button>
-                </div>
-                <div class="header-actions">
-                    <button class="notif-btn" onclick="toggleOcultarValores()" title="Ocultar Valores">
-                        <i id="icon-ocultar" class="fas fa-eye"></i>
-                    </button>
-                    <div class="notif-btn-wrapper">
-                        <button class="notif-btn" id="notif-btn" onclick="toggleNotifPanel()" title="Notificações">
-                            <i class="fas fa-bell"></i>
-                            <span class="notif-badge hidden" id="notif-badge">0</span>
-                        </button>
-                    </div>
-                    <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> <span class="logout-text">Sair</span></button>
-                </div>
+            <span id="header-data-hoje" class="header-data-hoje"></span>
+            <div class="header-mes-selector">
+                <button class="mes-nav-btn" onclick="navegarMes(-1)"><i class="fas fa-chevron-left"></i></button>
+                <span id="header-mes-label" onclick="abrirMesPicker()" title="Selecionar mês" style="cursor:pointer">Todos</span>
+                <button class="mes-nav-btn" onclick="navegarMes(1)"><i class="fas fa-chevron-right"></i></button>
             </div>
+            <button class="notif-btn" onclick="toggleOcultarValores()" title="Ocultar Valores">
+                <i id="icon-ocultar" class="fas fa-eye"></i>
+            </button>
+            <div class="notif-btn-wrapper">
+                <button class="notif-btn" id="notif-btn" onclick="toggleNotifPanel()" title="Notificações">
+                    <i class="fas fa-bell"></i>
+                    <span class="notif-badge hidden" id="notif-badge">0</span>
+                </button>
+            </div>
+            <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> <span class="logout-text">Sair</span></button>
         </header>
 
         <!-- PAINEL DE NOTIFICAÇÕES FLUTUANTE -->
@@ -321,29 +315,72 @@
             </div>
         </div>
 
+        <!-- CARTÕES DE CRÉDITO -->
+        <div id="content-cartoes" class="content-section hidden">
+
+            <!-- Grade de cartões -->
+            <div id="cartoes-grade" class="cc-grade"></div>
+
+            <!-- Painel de detalhes do cartão selecionado -->
+            <div id="cc-painel" class="cc-painel hidden">
+                <div class="cc-painel-header">
+                    <div class="cc-painel-titulo-wrap">
+                        <div id="cc-painel-chip" class="cc-chip-grande"></div>
+                        <div>
+                            <h2 id="cc-painel-nome" class="cc-painel-nome"></h2>
+                            <span id="cc-painel-info" class="cc-painel-info-sub"></span>
+                        </div>
+                    </div>
+                    <div class="cc-painel-resumo">
+                        <div class="cc-resumo-item">
+                            <span class="cc-resumo-label">Fatura atual</span>
+                            <span class="cc-resumo-valor text-danger" id="cc-fatura-valor">R$ 0,00</span>
+                        </div>
+                        <div class="cc-resumo-item">
+                            <span class="cc-resumo-label">Limite disponível</span>
+                            <span class="cc-resumo-valor text-success" id="cc-limite-disp">—</span>
+                        </div>
+                        <div class="cc-resumo-item">
+                            <span class="cc-resumo-label">Vencimento</span>
+                            <span class="cc-resumo-valor" id="cc-venc-label">—</span>
+                        </div>
+                        <button class="btn-primary cc-btn-novo-gasto" onclick="abrirModalGastoCartao()">
+                            <i class="fas fa-plus"></i> Novo Gasto
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Barra de limite -->
+                <div class="cc-limite-bar-wrap" id="cc-limite-bar-wrap">
+                    <div class="cc-limite-bar-track">
+                        <div class="cc-limite-bar-fill" id="cc-limite-bar-fill"></div>
+                    </div>
+                    <span class="cc-limite-bar-label" id="cc-limite-bar-label"></span>
+                </div>
+
+                <!-- Filtro de mês da fatura -->
+                <div class="cc-fatura-filtro">
+                    <span class="cc-fatura-filtro-label"><i class="fas fa-calendar-alt"></i> Fatura de:</span>
+                    <div class="header-mes-selector" style="background:rgba(41,128,185,0.10);">
+                        <button class="mes-nav-btn" onclick="ccNavMes(-1)"><i class="fas fa-chevron-left"></i></button>
+                        <span id="cc-mes-label" style="color:#2c3e50;font-weight:600;font-size:13px;min-width:64px;text-align:center;cursor:pointer;" onclick="ccAbrirMesPicker()">—</span>
+                        <button class="mes-nav-btn" onclick="ccNavMes(1)"><i class="fas fa-chevron-right"></i></button>
+                    </div>
+                </div>
+
+                <!-- Lista de gastos do cartão -->
+                <div class="section-toolbar" style="margin-top:0">
+                    <div class="section-summary">
+                        <span class="summary-label">Gastos na fatura</span>
+                        <span id="cc-gastos-total" class="summary-value text-danger">R$ 0,00</span>
+                    </div>
+                </div>
+                <div id="cc-lista-gastos" class="registros-lista"></div>
+            </div>
+        </div>
+
         <!-- DADOS -->
         <div id="content-dados" class="content-section hidden">
-
-            <!-- Cards de acesso rápido: Previsão e Configurações -->
-            <div class="dados-quick-cards">
-                <div class="dados-quick-card" onclick="irParaSecao('Previsão','previsao','🔮','#e67e22')">
-                    <div class="dados-quick-card__icon" style="background:linear-gradient(135deg,#e67e22,#d35400);">🔮</div>
-                    <div class="dados-quick-card__info">
-                        <span class="dados-quick-card__title">Previsão Financeira</span>
-                        <span class="dados-quick-card__sub">Projeções e planejamento</span>
-                    </div>
-                    <i class="fas fa-chevron-right dados-quick-card__arrow"></i>
-                </div>
-                <div class="dados-quick-card" onclick="irParaSecao('Configurações','configuracoes','⚙️','#1abc9c')">
-                    <div class="dados-quick-card__icon" style="background:linear-gradient(135deg,#1abc9c,#16a085);">⚙️</div>
-                    <div class="dados-quick-card__info">
-                        <span class="dados-quick-card__title">Configurações</span>
-                        <span class="dados-quick-card__sub">Preferências do sistema</span>
-                    </div>
-                    <i class="fas fa-chevron-right dados-quick-card__arrow"></i>
-                </div>
-            </div>
-
             <div class="dados-grid">
 
                 <div class="dados-card" id="card-tipos-despesa">
@@ -476,7 +513,10 @@
             <li class="menu-item" data-color="#e74c3c" onclick="mudarAba('Despesas','despesas',this)"><span class="menu-icon">💰</span><span class="menu-text">Despesas</span></li>
             <li class="menu-item" data-color="#f39c12" onclick="mudarAba('A Pagar','a-pagar',this)"><span class="menu-icon">💸</span><span class="menu-text">A Pagar</span></li>
             <li class="menu-item" data-color="#2ecc71" onclick="mudarAba('Receita','receita',this)"><span class="menu-icon">📥</span><span class="menu-text">Receita</span></li>
+            <li class="menu-item" data-color="#2980b9" onclick="mudarAba('Cartões','cartoes',this)"><span class="menu-icon">💳</span><span class="menu-text">Cartões</span></li>
             <li class="menu-item" data-color="#9b59b6" onclick="mudarAba('Dados','dados',this)"><span class="menu-icon">📊</span><span class="menu-text">Dados</span></li>
+            <li class="menu-item" data-color="#e67e22" onclick="mudarAba('Previsão','previsao',this)"><span class="menu-icon">🔮</span><span class="menu-text">Previsão</span></li>
+            <li class="menu-item" data-color="#1abc9c" onclick="mudarAba('Configurações','configuracoes',this)"><span class="menu-icon">⚙️</span><span class="menu-text">Configurações</span></li>
         </ul>
         <div class="sidebar-footer">ver 9.0</div>
     </nav>
@@ -868,6 +908,71 @@
         </div>
         <div class="modal-body">
             <div id="mes-picker-grid" class="mes-picker-grid"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ======= MODAL: GASTO NO CARTÃO ======= -->
+<div id="modal-gasto-cartao" class="modal-overlay hidden">
+    <div class="modal-box modal-box-lg">
+        <div class="modal-header">
+            <h3><i class="fas fa-credit-card"></i> <span id="modal-gasto-titulo">Novo Gasto no Cartão</span></h3>
+            <button class="modal-close" onclick="fecharModal('modal-gasto-cartao')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="gasto-edit-id">
+            <input type="hidden" id="gasto-cartao-id">
+            <div class="form-group">
+                <label>Descrição *</label>
+                <input type="text" id="gasto-descricao" placeholder="Ex: Supermercado, Restaurante, Amazon...">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Valor (R$) *</label>
+                    <input type="number" id="gasto-valor" placeholder="0,00" min="0" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Data da compra *</label>
+                    <input type="date" id="gasto-data">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Categoria</label>
+                    <select id="gasto-categoria"><option value="">Sem categoria</option></select>
+                </div>
+                <div class="form-group">
+                    <label>Parcelas</label>
+                    <select id="gasto-parcelas">
+                        <option value="1">À vista (1x)</option>
+                        <option value="2">2x</option>
+                        <option value="3">3x</option>
+                        <option value="4">4x</option>
+                        <option value="5">5x</option>
+                        <option value="6">6x</option>
+                        <option value="7">7x</option>
+                        <option value="8">8x</option>
+                        <option value="9">9x</option>
+                        <option value="10">10x</option>
+                        <option value="11">11x</option>
+                        <option value="12">12x</option>
+                        <option value="18">18x</option>
+                        <option value="24">24x</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Estabelecimento / Local</label>
+                <input type="text" id="gasto-local" placeholder="Ex: Carrefour, iFood, Americanas...">
+            </div>
+            <div class="form-group">
+                <label>Observação</label>
+                <input type="text" id="gasto-obs" placeholder="Opcional...">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-cancel" onclick="fecharModal('modal-gasto-cartao')">Cancelar</button>
+            <button class="btn-save" onclick="salvarGastoCartao()"><i class="fas fa-save"></i> Salvar</button>
         </div>
     </div>
 </div>

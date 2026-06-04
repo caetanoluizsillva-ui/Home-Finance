@@ -6,7 +6,8 @@
 
   const SYNC_KEYS = [
     'despesas_gastos', 'a_pagar', 'receitas', 'cartoes',
-    'cat_despesas', 'cat_receitas', 'tipos_despesa', 'metas'
+    'cat_despesas', 'cat_receitas', 'tipos_despesa', 'metas',
+    'gastos_cartao'
   ];
   const COL = 'financeiro';
   const DOC = 'meus-dados';
@@ -90,6 +91,7 @@
           'content-despesas': 'renderizarDespesas',
           'content-a-pagar':  'renderizarAPagar',
           'content-receita':  'renderizarReceitas',
+          'content-cartoes':  'renderizarCartoes',
           'content-dados':    'renderizarDados',
         };
         for (const [id, fn] of Object.entries(mapa)) {
