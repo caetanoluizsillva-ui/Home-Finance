@@ -111,25 +111,29 @@
 <div id="app-screen" class="screen hidden">
     <main id="content-area">
         <header>
-            <div id="page-header-title-container" onclick="voltarParaAnalise()" title="Clique para voltar para Análise">
-               <h1 id="page-title"><span class="title-icon">📈</span><span class="title-text">Análise</span></h1>
-            </div>
-            <span id="header-data-hoje" class="header-data-hoje"></span>
-            <div class="header-mes-selector">
-                <button class="mes-nav-btn" onclick="navegarMes(-1)"><i class="fas fa-chevron-left"></i></button>
-                <span id="header-mes-label" onclick="abrirMesPicker()" title="Selecionar mês" style="cursor:pointer">Todos</span>
-                <button class="mes-nav-btn" onclick="navegarMes(1)"><i class="fas fa-chevron-right"></i></button>
-            </div>
-            <button class="notif-btn" onclick="toggleOcultarValores()" title="Ocultar Valores">
-                <i id="icon-ocultar" class="fas fa-eye"></i>
-            </button>
-            <div class="notif-btn-wrapper">
-                <button class="notif-btn" id="notif-btn" onclick="toggleNotifPanel()" title="Notificações">
-                    <i class="fas fa-bell"></i>
-                    <span class="notif-badge hidden" id="notif-badge">0</span>
+            <div class="header-row-top">
+                <div id="page-header-title-container" onclick="voltarParaAnalise()" title="Clique para voltar para Análise">
+                   <h1 id="page-title"><span class="title-icon">📈</span><span class="title-text">Análise</span></h1>
+                </div>
+                <span id="header-data-hoje" class="header-data-hoje"></span>
+                <button class="notif-btn" onclick="toggleOcultarValores()" title="Ocultar Valores">
+                    <i id="icon-ocultar" class="fas fa-eye"></i>
                 </button>
+                <div class="notif-btn-wrapper">
+                    <button class="notif-btn" id="notif-btn" onclick="toggleNotifPanel()" title="Notificações">
+                        <i class="fas fa-bell"></i>
+                        <span class="notif-badge hidden" id="notif-badge">0</span>
+                    </button>
+                </div>
+                <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> <span class="logout-text">Sair</span></button>
             </div>
-            <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> <span class="logout-text">Sair</span></button>
+            <div class="header-row-bottom">
+                <div class="header-mes-selector">
+                    <button class="mes-nav-btn" onclick="navegarMes(-1)"><i class="fas fa-chevron-left"></i></button>
+                    <span id="header-mes-label" onclick="abrirMesPicker()" title="Selecionar mês" style="cursor:pointer">Todos</span>
+                    <button class="mes-nav-btn" onclick="navegarMes(1)"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            </div>
         </header>
 
         <!-- PAINEL DE NOTIFICAÇÕES FLUTUANTE -->
@@ -381,6 +385,23 @@
 
         <!-- DADOS -->
         <div id="content-dados" class="content-section hidden">
+
+            <!-- ATALHOS DE NAVEGAÇÃO -->
+            <div class="dados-nav-atalhos">
+                <button class="dados-nav-card" onclick="mudarAba('Receita','receita',document.querySelector('.menu-item[onclick*=\'receita\']'))">
+                    <div class="dados-nav-icon" style="background:linear-gradient(135deg,#2ecc71,#27ae60);"><i class="fas fa-arrow-down"></i></div>
+                    <span>Receitas</span>
+                </button>
+                <button class="dados-nav-card" onclick="mudarAba('Previsão','previsao',document.querySelector('.menu-item[onclick*=\'previsao\']'))">
+                    <div class="dados-nav-icon" style="background:linear-gradient(135deg,#9b59b6,#8e44ad);"><i class="fas fa-chart-line"></i></div>
+                    <span>Previsão</span>
+                </button>
+                <button class="dados-nav-card" onclick="mudarAba('Configurações','configuracoes',document.querySelector('.menu-item[onclick*=\'configuracoes\']'))">
+                    <div class="dados-nav-icon" style="background:linear-gradient(135deg,#7f8c8d,#636e72);"><i class="fas fa-cog"></i></div>
+                    <span>Config.</span>
+                </button>
+            </div>
+
             <div class="dados-grid">
 
                 <div class="dados-card" id="card-tipos-despesa">

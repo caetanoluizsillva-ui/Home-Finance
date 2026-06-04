@@ -13,21 +13,16 @@ const firebaseConfig = {
 window.FIREBASE_CONFIG  = firebaseConfig;
 window.FIREBASE_ENABLED = true;
 
-// Pré-carrega os módulos Firebase em paralelo assim que o script é executado.
-// Quando fazerLogin() chamar initFirebase(), os módulos já estarão no cache do
-// browser (ou em download adiantado), eliminando a espera visível ao usuário.
-const _fbModulesPromise = Promise.all([
-  import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js'),
-  import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js')
-]);
-
 (async function initFirebase() {
   try {
-    // Reutiliza o download já iniciado no topo do arquivo (não espera do zero)
+    // Importa App + Auth em paralelo (economiza ~600ms vs. await sequencial)
     const [
       { initializeApp },
       { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
-    ] = await _fbModulesPromise;
+    ] = await Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js')
+    ]);
 
     const app  = initializeApp(firebaseConfig);
     const auth = getAuth(app);
