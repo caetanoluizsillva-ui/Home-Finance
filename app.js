@@ -93,7 +93,13 @@ function mudarAba(nome, id, el) {
     const icon = el.querySelector('.menu-icon').innerText;
     document.getElementById('page-title').innerHTML = `<span class="title-icon">${icon}</span><span class="title-text">${nome}</span>`;
     document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
-    el.classList.add('active');
+    // Se o item é oculto, mantém "Dados" como ativo visualmente no sidebar
+    if (el.classList.contains('menu-item--hidden')) {
+        const dadosItem = document.querySelector('.menu-item[data-tab="dados"]');
+        if (dadosItem) dadosItem.classList.add('active');
+    } else {
+        el.classList.add('active');
+    }
     // Propaga cor do menu ativo para bordas dos campos nos modais
     const cor = el.dataset.color || '#3498db';
     document.documentElement.style.setProperty('--modal-accent', cor);

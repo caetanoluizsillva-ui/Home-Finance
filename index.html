@@ -388,15 +388,15 @@
 
             <!-- ATALHOS DE NAVEGAÇÃO -->
             <div class="dados-nav-atalhos">
-                <button class="dados-nav-card" onclick="mudarAba('Receita','receita',document.querySelector('.menu-item[onclick*=\'receita\']'))">
+                <button class="dados-nav-card" onclick="mudarAba('Receita','receita',document.querySelector('[data-tab=receita]'))">
                     <div class="dados-nav-icon" style="background:linear-gradient(135deg,#2ecc71,#27ae60);"><i class="fas fa-arrow-down"></i></div>
                     <span>Receitas</span>
                 </button>
-                <button class="dados-nav-card" onclick="mudarAba('Previsão','previsao',document.querySelector('.menu-item[onclick*=\'previsao\']'))">
+                <button class="dados-nav-card" onclick="mudarAba('Previsão','previsao',document.querySelector('[data-tab=previsao]'))">
                     <div class="dados-nav-icon" style="background:linear-gradient(135deg,#9b59b6,#8e44ad);"><i class="fas fa-chart-line"></i></div>
                     <span>Previsão</span>
                 </button>
-                <button class="dados-nav-card" onclick="mudarAba('Configurações','configuracoes',document.querySelector('.menu-item[onclick*=\'configuracoes\']'))">
+                <button class="dados-nav-card" onclick="mudarAba('Configurações','configuracoes',document.querySelector('[data-tab=configuracoes]'))">
                     <div class="dados-nav-icon" style="background:linear-gradient(135deg,#7f8c8d,#636e72);"><i class="fas fa-cog"></i></div>
                     <span>Config.</span>
                 </button>
@@ -534,7 +534,11 @@
             <li class="menu-item" data-color="#e74c3c" onclick="mudarAba('Despesas','despesas',this)"><span class="menu-icon">💰</span><span class="menu-text">Despesas</span></li>
             <li class="menu-item" data-color="#f39c12" onclick="mudarAba('A Pagar','a-pagar',this)"><span class="menu-icon">💸</span><span class="menu-text">A Pagar</span></li>
             <li class="menu-item" data-color="#2980b9" onclick="mudarAba('Cartões','cartoes',this)"><span class="menu-icon">💳</span><span class="menu-text">Cartões</span></li>
-            <li class="menu-item" data-color="#9b59b6" onclick="mudarAba('Dados','dados',this)"><span class="menu-icon">📊</span><span class="menu-text">Dados</span></li>
+            <li class="menu-item" data-color="#9b59b6" data-tab="dados" onclick="mudarAba('Dados','dados',this)"><span class="menu-icon">📊</span><span class="menu-text">Dados</span></li>
+            <!-- Itens ocultos — mantidos para que mudarAba() funcione ao navegar pelos atalhos da página Dados -->
+            <li class="menu-item menu-item--hidden" data-color="#2ecc71" data-tab="receita" onclick="mudarAba('Receita','receita',this)"><span class="menu-icon">📥</span><span class="menu-text">Receita</span></li>
+            <li class="menu-item menu-item--hidden" data-color="#e67e22" data-tab="previsao" onclick="mudarAba('Previsão','previsao',this)"><span class="menu-icon">🔮</span><span class="menu-text">Previsão</span></li>
+            <li class="menu-item menu-item--hidden" data-color="#1abc9c" data-tab="configuracoes" onclick="mudarAba('Configurações','configuracoes',this)"><span class="menu-icon">⚙️</span><span class="menu-text">Configurações</span></li>
         </ul>
         <div class="sidebar-footer">ver 9.0</div>
     </nav>
