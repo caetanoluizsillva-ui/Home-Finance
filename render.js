@@ -279,9 +279,6 @@ function renderizarDespesas() {
         const delBtn = eDeCartao
             ? `<button class="btn-icon btn-del" title="Desfaz pagamento — volta para A Pagar" onclick="excluirDespesa('${d.id}')"><i class="fas fa-undo"></i></button>`
             : `<button class="btn-icon btn-del" onclick="excluirDespesa('${d.id}')"><i class="fas fa-trash"></i></button>`;
-        const cartaoTag = eDeCartao
-            ? `<span class="reg-tipo-tag" style="background:#1a2a4422;color:#2980b9;border:1px solid #2980b944">💳 Cartão</span>`
-            : '';
         return `
         <div class="reg-item">
             <div class="reg-icon" style="background:${cor}22; color:${cor}">${icone}</div>
@@ -292,7 +289,7 @@ function renderizarDespesas() {
             <div class="reg-meio">
                 ${cat ? `<span class="reg-tipo-tag">${cat.nome}</span>` : ''}
                 ${d.tipoPagamentoNome ? `<span class="reg-tipo-tag">${d.tipoPagamentoNome}</span>` : ''}
-                ${cartaoTag}
+                ${eDeCartao ? `<span class="reg-tipo-tag" style="background:#2980b922;color:#2980b9">💳 Cartão</span>` : ''}
             </div>
             <span class="reg-valor text-danger">${brl(d.valor)}</span>
             <div class="reg-actions">
@@ -308,44 +305,42 @@ function excluirDespesa(id) {
     const despesa  = despesas.find(x => x.id === id);
     if (!despesa) return;
 
-    // Verifica se é uma despesa de cartão de crédito
+    // Verifica se é uma despesa paga via cartão de crédito
     const eDeCartao = despesa.tipoPagamentoVal && despesa.tipoPagamentoVal.startsWith('cartao_');
     const cartaoId  = eDeCartao ? despesa.tipoPagamentoVal.replace('cartao_', '') : null;
     const cartao    = cartaoId ? getData('cartoes').find(c => c.id === cartaoId) : null;
 
     if (eDeCartao && cartao) {
-        // Despesas de cartão não podem ser excluídas diretamente —
-        // a exclusão deve ser feita na aba Cartões para remover o gasto na origem.
-        // Aqui apenas movemos de volta para A Pagar (desfaz o "marcar como pago").
+        // Despesas de cartão não podem ser excluídas permanentemente aqui.
+        // O correto é desfazer o pagamento — a fatura volta para A Pagar.
+        if (!confirm('Esta despesa é de um cartão de crédito.\n\nDesfazer o pagamento? A fatura voltará para "A Pagar".')) return;
 
-        // Verifica se já existe uma fatura a pagar para este cartão neste mês
         const dataDesp = despesa.data || new Date().toISOString().slice(0, 10);
         const { mes, ano } = _ccMesFatura(dataDesp, cartao);
-        const faturaId = `fatura_${cartaoId}_${ano}_${String(mes + 1).padStart(2, '0')}`;
-        const apagar   = getData('a_pagar');
+        const faturaId  = `fatura_${cartaoId}_${ano}_${String(mes + 1).padStart(2, '0')}`;
+        const apagar    = getData('a_pagar');
         const faturaIdx = apagar.findIndex(x => x.id === faturaId);
 
         if (faturaIdx > -1 && apagar[faturaIdx].pago) {
-            // Desfaz o pagamento da fatura: volta para pendente
+            // Desfaz o pagamento: volta para pendente
             apagar[faturaIdx].pago          = false;
             apagar[faturaIdx].dataPagamento = null;
             localStorage.setItem('a_pagar', JSON.stringify(apagar));
         } else if (faturaIdx === -1) {
-            // Recalcula a fatura a partir dos gastos do cartão
+            // Fatura não existe mais: recalcula a partir dos gastos do cartão
             _ccSincronizarAPagar(cartaoId, mes, ano);
         }
 
-        // Remove a despesa
         localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
         renderizarDespesas();
         renderizarAPagar();
         renderizarAnalise();
         atualizarIconeNotificacao();
-        toast('Despesa de cartão removida. Fatura voltou para A Pagar.', 'success');
+        toast('Pagamento desfeito. Fatura voltou para A Pagar.', 'success');
         return;
     }
 
-    // Despesa normal (sem cartão): exclusão simples
+    // Despesa normal: exclusão direta
     if (!confirm('Excluir esta despesa?')) return;
     localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
     renderizarDespesas();
@@ -505,7 +500,7 @@ function renderizarAPagar() {
     lista.innerHTML = items.map(item => {
         const status = _statusAPagar(item);
         const cat    = cats.find(c => c.id === item.categoriaId);
-        const icone  = cat ? cat.icone : '💸';
+        const icone  = cat ? cat.icone : (item._faturaCartao ? '💳' : '💸');
         const cor    = cat ? cat.cor   : '#95a5a6';
         const badgeClass = { pendente: 'badge-pendente', vencido: 'badge-vencido' }[status] || 'badge-pendente';
         const badgeLabel = { pendente: 'Pendente', vencido: 'Vencido' }[status] || 'Pendente';
@@ -513,6 +508,9 @@ function renderizarAPagar() {
         const nomeExibir  = item._isParcelado ? item._parcelaNome : item.descricao;
         // Para parcelados usa _instanciaId para o botão pagar; para normais usa item.id
         const pagarId = item._isParcelado ? item._instanciaId : item.id;
+        const delBtn  = item._faturaCartao
+            ? `<button class="btn-icon btn-del" title="Gerencie na aba Cartões" onclick="toast('Para excluir, remova os gastos na aba Cartões.','error')" style="opacity:0.45"><i class="fas fa-lock"></i></button>`
+            : `<button class="btn-icon btn-del" onclick="excluirAPagar('${item.id}')"><i class="fas fa-trash"></i></button>`;
         return `
         <div class="reg-item" data-id="${item.id}">
             <div class="reg-icon" style="background:${cor}22; color:${cor}">${icone}</div>
@@ -522,16 +520,13 @@ function renderizarAPagar() {
             </div>
             <div class="reg-meio">
                 <span class="badge ${badgeClass}">${badgeLabel}</span>
-                <span class="reg-tipo-tag">${item.tipo || ''}</span>
+                ${item._faturaCartao ? `<span class="reg-tipo-tag" style="background:#2980b922;color:#2980b9">💳 Fatura</span>` : `<span class="reg-tipo-tag">${item.tipo || ''}</span>`}
             </div>
             <span class="reg-valor text-danger">${brl(valorExibir)}</span>
             <div class="reg-actions">
                 <button class="btn-icon btn-edit" title="Marcar pago" onclick="marcarPago('${pagarId}')"><i class="fas fa-check"></i></button>
                 ${!item._isParcelado && !item._faturaCartao ? `<button class="btn-icon btn-edit" onclick="abrirModalAPagar('${item.id}')"><i class="fas fa-pen"></i></button>` : ''}
-                ${item._faturaCartao
-                    ? `<button class="btn-icon btn-del" title="Gerenciar na aba Cartões" onclick="toast('Para excluir, remova os gastos na aba Cartões.','error')" style="opacity:0.5;cursor:default"><i class="fas fa-lock"></i></button>`
-                    : `<button class="btn-icon btn-del" onclick="excluirAPagar('${item.id}')"><i class="fas fa-trash"></i></button>`
-                }
+                ${delBtn}
             </div>
         </div>`;
     }).join('');
@@ -610,9 +605,9 @@ function excluirAPagar(id) {
     const item = arr.find(x => x.id === id);
     if (!item) return;
 
-    // Faturas geradas por cartão só podem ser excluídas via aba Cartões
+    // Faturas de cartão só podem ser removidas excluindo os gastos na aba Cartões
     if (item._faturaCartao) {
-        toast('Para remover esta fatura, exclua os gastos do cartão na aba Cartões.', 'error');
+        toast('Para remover esta fatura, exclua os gastos na aba Cartões.', 'error');
         return;
     }
 
@@ -830,11 +825,18 @@ let _ccAnoSel    = null;
  */
 function _ccMesFatura(dataCompraISO, cartao) {
     const [y, m, d] = dataCompraISO.split('-').map(Number);
-    const diaVenc = parseInt(cartao.vencimento) || 1;
-    // Se compra for após o dia de vencimento, cai no mês seguinte
+    const diaVencRaw = parseInt(cartao.vencimento);
+
+    // Se o cartão não tem dia de vencimento definido,
+    // a compra pertence sempre ao mês da própria compra.
+    if (!diaVencRaw || isNaN(diaVencRaw)) {
+        return { mes: m - 1, ano: y };
+    }
+
+    // Se compra for APÓS o dia de vencimento, cai na fatura do mês seguinte
     let mesF = m - 1; // 0-based
     let anoF = y;
-    if (d > diaVenc) {
+    if (d > diaVencRaw) {
         mesF++;
         if (mesF > 11) { mesF = 0; anoF++; }
     }
@@ -845,11 +847,15 @@ function _ccMesFatura(dataCompraISO, cartao) {
  * Retorna a data ISO de vencimento da fatura para um dado mês/ano e cartão.
  */
 function _ccDataVencFatura(mes, ano, cartao) {
-    const dia = parseInt(cartao.vencimento) || 1;
+    const diaVencRaw = parseInt(cartao.vencimento);
+    // Se não há dia de vencimento definido, usa o último dia do mês da fatura
+    if (!diaVencRaw || isNaN(diaVencRaw)) {
+        const ultimoDia = new Date(ano, mes + 1, 0).getDate();
+        return `${ano}-${String(mes + 1).padStart(2,'0')}-${String(ultimoDia).padStart(2,'0')}`;
+    }
     // Garante dia válido no mês (ex: dia 31 em fevereiro)
-    const dataObj = new Date(ano, mes, dia);
-    // Se dia inválido, JS avança para o próximo mês; usamos o último dia do mês
-    const diaReal = dataObj.getDate() === dia ? dia :
+    const dataObj = new Date(ano, mes, diaVencRaw);
+    const diaReal = dataObj.getDate() === diaVencRaw ? diaVencRaw :
         new Date(ano, mes + 1, 0).getDate();
     return `${ano}-${String(mes + 1).padStart(2,'0')}-${String(diaReal).padStart(2,'0')}`;
 }
@@ -1244,9 +1250,9 @@ function salvarGastoCartao() {
         const idx    = arr.findIndex(x => x.id === editId);
         if (idx > -1) arr[idx] = item; else arr.push(item);
         localStorage.setItem('gastos_cartao', JSON.stringify(arr));
-        // Recalcula meses do gasto antigo e do novo
+        // Recalcula meses do cartão antigo; se trocou de cartão, recalcula o novo também
         if (antigo) _ccRecalcularTodoCartao(antigo.cartaoId);
-        if (item.cartaoId !== (antigo && antigo.cartaoId)) _ccRecalcularTodoCartao(item.cartaoId);
+        if (antigo && item.cartaoId !== antigo.cartaoId) _ccRecalcularTodoCartao(item.cartaoId);
     } else {
         arr.push(item);
         localStorage.setItem('gastos_cartao', JSON.stringify(arr));
