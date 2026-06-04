@@ -230,10 +230,9 @@ body {
 
 header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
     margin-bottom: 24px;
-    gap: 10px;
     /* Floating header */
     position: sticky;
     top: 0;
@@ -246,13 +245,35 @@ header {
     border-left: 4px solid var(--modal-accent, #2c3e50);
     border-right: 4px solid var(--modal-accent, #2c3e50);
     box-shadow: 0 4px 20px rgba(44,62,80,0.09), 0 1px 4px rgba(44,62,80,0.05);
-    padding: 12px 18px;
+    padding: 12px 18px 10px;
     margin-left: -4px;
     margin-right: -4px;
 }
+
+/* Linha 1: título + data */
+.header-row--top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Linha 2: seletor de mês (esquerda) + ações (direita) */
+.header-row--bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
 .header-mes-selector {
-    margin-left: auto;
-    margin-right: 8px;
+    margin: 0;
 }
 
 /* Título interativo e dinâmico */
@@ -463,13 +484,19 @@ header {
 
     header {
         margin-bottom: 14px;
-        padding: 8px 12px;
-        gap: 6px;
-        flex-wrap: nowrap;
-        overflow: hidden;
+        padding: 8px 12px 7px;
+        gap: 5px;
         border-radius: 12px;
         margin-left: 0;
         margin-right: 0;
+    }
+
+    .header-row--top {
+        gap: 5px;
+    }
+
+    .header-row--bottom {
+        gap: 4px;
     }
 
     #page-header-title-container {
@@ -528,6 +555,27 @@ header {
         flex-shrink: 0;
     }
 
+    .dados-quick-cards {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .dados-quick-card {
+        padding: 12px 12px;
+        gap: 10px;
+    }
+
+    .dados-quick-card__icon {
+        width: 38px;
+        height: 38px;
+        font-size: 18px;
+    }
+
+    .dados-quick-card__title {
+        font-size: 13px;
+    }
+
     /* No mobile mostra só o ícone no botão Sair */
     .menu {
         flex-direction: row;
@@ -576,6 +624,78 @@ header {
         display: none;
     }
 }
+/* =========================================
+   PÁGINA DADOS — CARDS DE ACESSO RÁPIDO
+   ========================================= */
+.dados-quick-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.dados-quick-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: all 0.22s ease;
+}
+.dados-quick-card:hover {
+    box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+    transform: translateY(-2px);
+    border-color: rgba(0,0,0,0.06);
+}
+
+.dados-quick-card__icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+}
+
+.dados-quick-card__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dados-quick-card__title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #2c3e50;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dados-quick-card__sub {
+    font-size: 12px;
+    color: #95a5a6;
+}
+
+.dados-quick-card__arrow {
+    color: #bdc3c7;
+    font-size: 13px;
+    flex-shrink: 0;
+    transition: transform 0.2s, color 0.2s;
+}
+.dados-quick-card:hover .dados-quick-card__arrow {
+    transform: translateX(3px);
+    color: #7f8c8d;
+}
+
 /* =========================================
    PÁGINA DADOS — GRID DE CARDS
    ========================================= */
@@ -1848,19 +1968,6 @@ body.modo-oculto .contas-val {
 #modal-a-pagar .modal-body {
     max-height: 70vh;
     overflow-y: auto;
-}
-
-/* =========================================
-   BOTÃO OCULTAR VALORES — alinhado ao notif-btn
-   ========================================= */
-header > .notif-btn {
-    /* herda os estilos de .notif-btn mas sem o wrapper */
-    flex-shrink: 0;
-}
-
-/* Remove o bloco top-bar-icons caso ainda exista no DOM */
-.top-bar-icons {
-    display: none !important;
 }
 
 /* =========================================

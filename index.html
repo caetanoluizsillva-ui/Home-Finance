@@ -8,10 +8,6 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://www.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <!-- Preload dos módulos Firebase mais pesados para reduzir latência de login -->
-    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js" crossorigin>
-    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js" crossorigin>
-    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js" crossorigin>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2980b9">
@@ -115,25 +111,31 @@
 <div id="app-screen" class="screen hidden">
     <main id="content-area">
         <header>
-            <div id="page-header-title-container" onclick="voltarParaAnalise()" title="Clique para voltar para Análise">
-               <h1 id="page-title"><span class="title-icon">📈</span><span class="title-text">Análise</span></h1>
+            <div class="header-row header-row--top">
+                <div id="page-header-title-container" onclick="voltarParaAnalise()" title="Clique para voltar para Análise">
+                   <h1 id="page-title"><span class="title-icon">📈</span><span class="title-text">Análise</span></h1>
+                </div>
+                <span id="header-data-hoje" class="header-data-hoje"></span>
             </div>
-            <span id="header-data-hoje" class="header-data-hoje"></span>
-            <div class="header-mes-selector">
-                <button class="mes-nav-btn" onclick="navegarMes(-1)"><i class="fas fa-chevron-left"></i></button>
-                <span id="header-mes-label" onclick="abrirMesPicker()" title="Selecionar mês" style="cursor:pointer">Todos</span>
-                <button class="mes-nav-btn" onclick="navegarMes(1)"><i class="fas fa-chevron-right"></i></button>
+            <div class="header-row header-row--bottom">
+                <div class="header-mes-selector">
+                    <button class="mes-nav-btn" onclick="navegarMes(-1)"><i class="fas fa-chevron-left"></i></button>
+                    <span id="header-mes-label" onclick="abrirMesPicker()" title="Selecionar mês" style="cursor:pointer">Todos</span>
+                    <button class="mes-nav-btn" onclick="navegarMes(1)"><i class="fas fa-chevron-right"></i></button>
+                </div>
+                <div class="header-actions">
+                    <button class="notif-btn" onclick="toggleOcultarValores()" title="Ocultar Valores">
+                        <i id="icon-ocultar" class="fas fa-eye"></i>
+                    </button>
+                    <div class="notif-btn-wrapper">
+                        <button class="notif-btn" id="notif-btn" onclick="toggleNotifPanel()" title="Notificações">
+                            <i class="fas fa-bell"></i>
+                            <span class="notif-badge hidden" id="notif-badge">0</span>
+                        </button>
+                    </div>
+                    <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> <span class="logout-text">Sair</span></button>
+                </div>
             </div>
-            <button class="notif-btn" onclick="toggleOcultarValores()" title="Ocultar Valores">
-                <i id="icon-ocultar" class="fas fa-eye"></i>
-            </button>
-            <div class="notif-btn-wrapper">
-                <button class="notif-btn" id="notif-btn" onclick="toggleNotifPanel()" title="Notificações">
-                    <i class="fas fa-bell"></i>
-                    <span class="notif-badge hidden" id="notif-badge">0</span>
-                </button>
-            </div>
-            <button class="logout-btn" onclick="fazerLogout()"><i class="fas fa-sign-out-alt"></i> <span class="logout-text">Sair</span></button>
         </header>
 
         <!-- PAINEL DE NOTIFICAÇÕES FLUTUANTE -->
@@ -321,6 +323,27 @@
 
         <!-- DADOS -->
         <div id="content-dados" class="content-section hidden">
+
+            <!-- Cards de acesso rápido: Previsão e Configurações -->
+            <div class="dados-quick-cards">
+                <div class="dados-quick-card" onclick="irParaSecao('Previsão','previsao','🔮','#e67e22')">
+                    <div class="dados-quick-card__icon" style="background:linear-gradient(135deg,#e67e22,#d35400);">🔮</div>
+                    <div class="dados-quick-card__info">
+                        <span class="dados-quick-card__title">Previsão Financeira</span>
+                        <span class="dados-quick-card__sub">Projeções e planejamento</span>
+                    </div>
+                    <i class="fas fa-chevron-right dados-quick-card__arrow"></i>
+                </div>
+                <div class="dados-quick-card" onclick="irParaSecao('Configurações','configuracoes','⚙️','#1abc9c')">
+                    <div class="dados-quick-card__icon" style="background:linear-gradient(135deg,#1abc9c,#16a085);">⚙️</div>
+                    <div class="dados-quick-card__info">
+                        <span class="dados-quick-card__title">Configurações</span>
+                        <span class="dados-quick-card__sub">Preferências do sistema</span>
+                    </div>
+                    <i class="fas fa-chevron-right dados-quick-card__arrow"></i>
+                </div>
+            </div>
+
             <div class="dados-grid">
 
                 <div class="dados-card" id="card-tipos-despesa">
@@ -454,8 +477,6 @@
             <li class="menu-item" data-color="#f39c12" onclick="mudarAba('A Pagar','a-pagar',this)"><span class="menu-icon">💸</span><span class="menu-text">A Pagar</span></li>
             <li class="menu-item" data-color="#2ecc71" onclick="mudarAba('Receita','receita',this)"><span class="menu-icon">📥</span><span class="menu-text">Receita</span></li>
             <li class="menu-item" data-color="#9b59b6" onclick="mudarAba('Dados','dados',this)"><span class="menu-icon">📊</span><span class="menu-text">Dados</span></li>
-            <li class="menu-item" data-color="#e67e22" onclick="mudarAba('Previsão','previsao',this)"><span class="menu-icon">🔮</span><span class="menu-text">Previsão</span></li>
-            <li class="menu-item" data-color="#1abc9c" onclick="mudarAba('Configurações','configuracoes',this)"><span class="menu-icon">⚙️</span><span class="menu-text">Configurações</span></li>
         </ul>
         <div class="sidebar-footer">ver 9.0</div>
     </nav>
@@ -858,12 +879,10 @@
      2. firebase-config.js → inicia Firebase (async interno, não bloqueia)
      3. app.js + render.js → lógica do app
      4. Chart.js → defer, só precisa na aba Análise -->
-<!-- firebase-sync.js: SEM defer — precisa interceptar localStorage.setItem antes de tudo -->
 <script src="firebase-sync.js"></script>
-<!-- firebase-config.js e app.js: async — não bloqueiam o parser HTML -->
-<script src="firebase-config.js" async></script>
-<script src="app.js" async></script>
-<script src="render.js" async></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+<script src="render.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
 </body>
 </html>
