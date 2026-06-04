@@ -30,16 +30,16 @@ async function fazerLogin() {
 
     // Aguarda Firebase ficar pronto (comum em conexões lentas)
     if (!window._firebaseReady) {
-        if(err) { err.style.color='#2980b9'; err.innerText='Conectando...'; }
-        if(btn) { btn.disabled=true; btn.innerText='Aguarde...'; }
+        if(err) { err.style.color='#2980b9'; err.innerText='Conectando ao servidor...'; }
+        if(btn) { btn.disabled=true; document.getElementById('btn-login-texto').innerText='Aguardando...'; }
         await new Promise(resolve => {
             if (window._firebaseReady) return resolve();
             window.addEventListener('firebaseReady', resolve, { once: true });
-            setTimeout(resolve, 8000);
+            setTimeout(resolve, 5000); // reduzido de 8s → 5s
         });
-        if(btn) { btn.disabled=false; btn.innerText='Entrar no Sistema'; }
+        if(btn) { btn.disabled=false; document.getElementById('btn-login-texto').innerText='Entrar no Sistema'; }
         if (!window._firebaseAPI) {
-            if(err) { err.style.color='#c0392b'; err.innerText='Sem conexão com o servidor.'; }
+            if(err) { err.style.color='#c0392b'; err.innerText='Sem conexão com o servidor. Verifique sua internet.'; }
             return;
         }
         if(err) err.innerText='';
@@ -47,13 +47,13 @@ async function fazerLogin() {
 
     try {
         if(err) { err.style.color = '#2980b9'; err.innerText = 'Autenticando...'; }
-        if(btn) { btn.disabled = true; btn.innerText = 'Aguarde...'; }
+        if(btn) { btn.disabled = true; document.getElementById('btn-login-texto').innerText = 'Aguarde...'; }
 
         const { signInWithEmailAndPassword } = window._firebaseAPI;
         await signInWithEmailAndPassword(window._firebaseAuth, email, pass);
         
         if(err) err.innerText = '';
-        if(btn) { btn.disabled = false; btn.innerText = 'Entrar no Sistema'; }
+        if(btn) { btn.disabled = false; document.getElementById('btn-login-texto').innerText = 'Entrar no Sistema'; }
     } catch (error) {
         console.error("Erro no login:", error);
         if(err) {
@@ -66,7 +66,7 @@ async function fazerLogin() {
             };
             err.innerText = msgs[error.code] || 'Erro ao fazer login. Verifique seus dados.';
         }
-        if(btn) { btn.disabled = false; btn.innerText = 'Entrar no Sistema'; }
+        if(btn) { btn.disabled = false; document.getElementById('btn-login-texto').innerText = 'Entrar no Sistema'; }
     }
 }
 
