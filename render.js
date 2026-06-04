@@ -275,6 +275,13 @@ function renderizarDespesas() {
         const icone = cat ? cat.icone : '💰';
         const cor   = cat ? cat.cor   : '#95a5a6';
         const sub   = [d.local, d.tipoPagamentoNome].filter(Boolean).join(' · ');
+        const eDeCartao = d.tipoPagamentoVal && d.tipoPagamentoVal.startsWith('cartao_');
+        const delBtn = eDeCartao
+            ? `<button class="btn-icon btn-del" title="Desfaz pagamento — volta para A Pagar" onclick="excluirDespesa('${d.id}')"><i class="fas fa-undo"></i></button>`
+            : `<button class="btn-icon btn-del" onclick="excluirDespesa('${d.id}')"><i class="fas fa-trash"></i></button>`;
+        const cartaoTag = eDeCartao
+            ? `<span class="reg-tipo-tag" style="background:#1a2a4422;color:#2980b9;border:1px solid #2980b944">💳 Cartão</span>`
+            : '';
         return `
         <div class="reg-item">
             <div class="reg-icon" style="background:${cor}22; color:${cor}">${icone}</div>
@@ -285,20 +292,62 @@ function renderizarDespesas() {
             <div class="reg-meio">
                 ${cat ? `<span class="reg-tipo-tag">${cat.nome}</span>` : ''}
                 ${d.tipoPagamentoNome ? `<span class="reg-tipo-tag">${d.tipoPagamentoNome}</span>` : ''}
+                ${cartaoTag}
             </div>
             <span class="reg-valor text-danger">${brl(d.valor)}</span>
             <div class="reg-actions">
-                <button class="btn-icon btn-edit" onclick="abrirModalDespesa('${d.id}')"><i class="fas fa-pen"></i></button>
-                <button class="btn-icon btn-del"  onclick="excluirDespesa('${d.id}')"><i class="fas fa-trash"></i></button>
+                ${!eDeCartao ? `<button class="btn-icon btn-edit" onclick="abrirModalDespesa('${d.id}')"><i class="fas fa-pen"></i></button>` : ''}
+                ${delBtn}
             </div>
         </div>`;
     }).join('');
 }
 
 function excluirDespesa(id) {
+    const despesas = getData('despesas_gastos');
+    const despesa  = despesas.find(x => x.id === id);
+    if (!despesa) return;
+
+    // Verifica se é uma despesa de cartão de crédito
+    const eDeCartao = despesa.tipoPagamentoVal && despesa.tipoPagamentoVal.startsWith('cartao_');
+    const cartaoId  = eDeCartao ? despesa.tipoPagamentoVal.replace('cartao_', '') : null;
+    const cartao    = cartaoId ? getData('cartoes').find(c => c.id === cartaoId) : null;
+
+    if (eDeCartao && cartao) {
+        // Despesas de cartão não podem ser excluídas diretamente —
+        // a exclusão deve ser feita na aba Cartões para remover o gasto na origem.
+        // Aqui apenas movemos de volta para A Pagar (desfaz o "marcar como pago").
+
+        // Verifica se já existe uma fatura a pagar para este cartão neste mês
+        const dataDesp = despesa.data || new Date().toISOString().slice(0, 10);
+        const { mes, ano } = _ccMesFatura(dataDesp, cartao);
+        const faturaId = `fatura_${cartaoId}_${ano}_${String(mes + 1).padStart(2, '0')}`;
+        const apagar   = getData('a_pagar');
+        const faturaIdx = apagar.findIndex(x => x.id === faturaId);
+
+        if (faturaIdx > -1 && apagar[faturaIdx].pago) {
+            // Desfaz o pagamento da fatura: volta para pendente
+            apagar[faturaIdx].pago          = false;
+            apagar[faturaIdx].dataPagamento = null;
+            localStorage.setItem('a_pagar', JSON.stringify(apagar));
+        } else if (faturaIdx === -1) {
+            // Recalcula a fatura a partir dos gastos do cartão
+            _ccSincronizarAPagar(cartaoId, mes, ano);
+        }
+
+        // Remove a despesa
+        localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
+        renderizarDespesas();
+        renderizarAPagar();
+        renderizarAnalise();
+        atualizarIconeNotificacao();
+        toast('Despesa de cartão removida. Fatura voltou para A Pagar.', 'success');
+        return;
+    }
+
+    // Despesa normal (sem cartão): exclusão simples
     if (!confirm('Excluir esta despesa?')) return;
-    const arr = getData('despesas_gastos').filter(x => x.id !== id);
-    localStorage.setItem('despesas_gastos', JSON.stringify(arr));
+    localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
     renderizarDespesas();
     renderizarAnalise();
     toast('Despesa excluída.', 'success');
@@ -478,8 +527,11 @@ function renderizarAPagar() {
             <span class="reg-valor text-danger">${brl(valorExibir)}</span>
             <div class="reg-actions">
                 <button class="btn-icon btn-edit" title="Marcar pago" onclick="marcarPago('${pagarId}')"><i class="fas fa-check"></i></button>
-                ${!item._isParcelado ? `<button class="btn-icon btn-edit" onclick="abrirModalAPagar('${item.id}')"><i class="fas fa-pen"></i></button>` : ''}
-                <button class="btn-icon btn-del" onclick="excluirAPagar('${item.id}')"><i class="fas fa-trash"></i></button>
+                ${!item._isParcelado && !item._faturaCartao ? `<button class="btn-icon btn-edit" onclick="abrirModalAPagar('${item.id}')"><i class="fas fa-pen"></i></button>` : ''}
+                ${item._faturaCartao
+                    ? `<button class="btn-icon btn-del" title="Gerenciar na aba Cartões" onclick="toast('Para excluir, remova os gastos na aba Cartões.','error')" style="opacity:0.5;cursor:default"><i class="fas fa-lock"></i></button>`
+                    : `<button class="btn-icon btn-del" onclick="excluirAPagar('${item.id}')"><i class="fas fa-trash"></i></button>`
+                }
             </div>
         </div>`;
     }).join('');
@@ -554,9 +606,18 @@ function marcarPago(instanciaId) {
 }
 
 function excluirAPagar(id) {
+    const arr  = getData('a_pagar');
+    const item = arr.find(x => x.id === id);
+    if (!item) return;
+
+    // Faturas geradas por cartão só podem ser excluídas via aba Cartões
+    if (item._faturaCartao) {
+        toast('Para remover esta fatura, exclua os gastos do cartão na aba Cartões.', 'error');
+        return;
+    }
+
     if (!confirm('Excluir esta conta?')) return;
-    const arr = getData('a_pagar').filter(x => x.id !== id);
-    localStorage.setItem('a_pagar', JSON.stringify(arr));
+    localStorage.setItem('a_pagar', JSON.stringify(arr.filter(x => x.id !== id)));
     renderizarAPagar();
     renderizarAnalise();
     atualizarIconeNotificacao();
