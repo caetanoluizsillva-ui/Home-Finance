@@ -1600,13 +1600,13 @@ header {
     color: white; font-size: 20px; flex-shrink: 0;
 }
 .dash-cartao-info { flex: 1; min-width: 0; }
-.dash-cartao-nome { font-size: 14px; font-weight: 600; color: #2c3e50; display: block; }
+.dash-cartao-header-row { display: flex; flex-direction: column; gap: 1px; margin-bottom: 2px; }
+.dash-cartao-nome { font-size: 14px; font-weight: 600; color: #2c3e50; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-cartao-valor { font-size: 16px; font-weight: 700; color: #e74c3c; display: block; }
 .dash-cartao-sub  { font-size: 11px; color: #999; display: block; margin-bottom: 4px; }
 .dash-cartao-bar-wrap { background: #e0e0e0; border-radius: 4px; height: 5px; margin: 4px 0 2px; }
 .dash-cartao-bar { height: 5px; border-radius: 4px; transition: width 0.5s ease; }
 .dash-cartao-limite { font-size: 11px; color: #888; }
-.dash-cartao-total { text-align: right; flex-shrink: 0; }
-.dash-cartao-valor { font-size: 16px; font-weight: 700; color: #e74c3c; display: block; }
 .dash-cartao-qtd { font-size: 11px; color: #999; }
 
 /* Contas listas */

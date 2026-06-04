@@ -1778,17 +1778,16 @@ function _renderDetalhamentoCartoes(despesas, cartoes) {
         <div class="dash-cartao-item">
             <div class="dash-cartao-chip" style="background:${c.cor||'#3498db'}">💳</div>
             <div class="dash-cartao-info">
-                <span class="dash-cartao-nome">${c.nome}</span>
-                <span class="dash-cartao-sub">${c.bandeira || ''} ${c.digitos ? '····'+c.digitos : ''}</span>
+                <div class="dash-cartao-header-row">
+                    <span class="dash-cartao-nome">${c.nome}</span>
+                    <span class="dash-cartao-valor valor-dinheiro">${brl(total)}</span>
+                </div>
+                <span class="dash-cartao-sub">${c.bandeira || ''} ${c.digitos ? '····'+c.digitos : ''} · <span class="dash-cartao-qtd">${desp.length} transações</span></span>
                 ${c.limite > 0 ? `
                 <div class="dash-cartao-bar-wrap">
                     <div class="dash-cartao-bar" style="background:${cor};width:${pct}%"></div>
                 </div>
                 <span class="dash-cartao-limite">Limite: ${brl(c.limite)} · Usado: ${pct}%</span>` : ''}
-            </div>
-            <div class="dash-cartao-total">
-                <span class="dash-cartao-valor valor-dinheiro">${brl(total)}</span>
-                <span class="dash-cartao-qtd">${desp.length} transações</span>
             </div>
         </div>`;
     }).join('');
