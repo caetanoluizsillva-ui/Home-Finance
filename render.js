@@ -1390,9 +1390,31 @@ function excluirGastoCartao(id) {
     const arr   = getData('gastos_cartao');
     const gasto = arr.find(x => x.id === id);
     if (!gasto) return;
+
+    const cartao = getData('cartoes').find(c => c.id === gasto.cartaoId);
+
+    // Coleta os meses afetados pelo gasto ANTES de excluí-lo
+    // (após a exclusão, _ccRecalcularTodoCartao não enxerga mais esse gasto)
+    const mesesAfetados = new Set();
+    if (cartao) {
+        const nParc = parseInt(gasto.parcelas) || 1;
+        for (let p = 0; p < nParc; p++) {
+            const [y, m, d] = gasto.data.split('-').map(Number);
+            const dataParc = new Date(y, m - 1 + p, d);
+            const { mes, ano } = _ccMesFatura(dataParc.toISOString().slice(0, 10), cartao);
+            mesesAfetados.add(`${ano}_${mes}`);
+        }
+    }
+
+    // Remove o gasto do storage
     localStorage.setItem('gastos_cartao', JSON.stringify(arr.filter(x => x.id !== id)));
-    // Recalcula todas as faturas afetadas
-    _ccRecalcularTodoCartao(gasto.cartaoId);
+
+    // Recalcula a fatura de cada mês afetado (agora sem o gasto excluído)
+    mesesAfetados.forEach(chave => {
+        const [ano, mes] = chave.split('_').map(Number);
+        _ccSincronizarAPagar(gasto.cartaoId, mes, ano);
+    });
+
     renderizarCartoes();
     if (typeof renderizarAPagar === 'function') renderizarAPagar();
     if (typeof renderizarAnalise === 'function') renderizarAnalise();
