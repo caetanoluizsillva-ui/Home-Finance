@@ -945,82 +945,257 @@ function fecharNotifPanel() {
 })();
 
 // ==========================================
-// LOGOUT AUTOMÁTICO POR INATIVIDADE (15 min)
+// NOTIFICAÇÕES PUSH — FCM (app fechado)
 // ==========================================
-;(function _autoLogout() {
-    const TEMPO_INATIVO_MS = 15 * 60 * 1000; // 15 minutos
-    const AVISO_ANTES_MS   =  1 * 60 * 1000; // aviso 1 min antes
+;(function _notificacoesPush() {
 
-    let _timerLogout = null;
-    let _timerAviso  = null;
-    let _toastAviso  = null;
+    const NOTIF_KEY    = 'notif_push_ativa';
+    const NOTIF_TOKEN  = 'notif_fcm_token';
+    const NOTIF_VISTAS = 'notif_ids_vistos';
+    const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
 
-    // Cancela os timers ativos
-    function _resetar() {
-        clearTimeout(_timerLogout);
-        clearTimeout(_timerAviso);
-        // Remove o aviso visual se ainda estiver na tela
-        if (_toastAviso) {
-            _toastAviso.classList.add('hidden');
-            _toastAviso = null;
+    let _messagingInstance = null;
+
+    // ── Suporte ───────────────────────────────────────────────────────────────
+    function _suportado() {
+        return ('Notification' in window) && ('serviceWorker' in navigator);
+    }
+
+    // ── Obtém instância do Firebase Messaging ─────────────────────────────────
+    async function _getMessaging() {
+        if (_messagingInstance) return _messagingInstance;
+        const [{ getMessaging, getToken, onMessage }, swReg] = await Promise.all([
+            import('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js'),
+            navigator.serviceWorker.register('./firebase-messaging-sw.js', { scope: './' })
+        ]);
+        _messagingInstance = { sdk: { getMessaging, getToken, onMessage }, swReg };
+        const app = window._firebaseApp;
+        if (!app) throw new Error('Firebase app não inicializado.');
+        _messagingInstance.m = getMessaging(app);
+        _messagingInstance.getToken  = getToken;
+        _messagingInstance.onMessage = onMessage;
+        return _messagingInstance;
+    }
+
+    // ── Chama Cloud Function callable ────────────────────────────────────────
+    async function _callFunction(nome, dados) {
+        const { getFunctions, httpsCallable } = await import(
+            'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js'
+        );
+        const fns = getFunctions(window._firebaseApp, 'us-central1');
+        const fn  = httpsCallable(fns, nome);
+        return fn(dados);
+    }
+
+    // ── Registra token FCM no Firestore via Cloud Function ────────────────────
+    async function _registrarToken(token) {
+        const tokenSalvo = localStorage.getItem(NOTIF_TOKEN);
+        if (tokenSalvo === token) return; // já registrado
+        const dispositivo = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+        await _callFunction('registrarTokenFCM', { token, dispositivo });
+        localStorage.setItem(NOTIF_TOKEN, token);
+        console.log('[FCM] Token registrado no Firestore.');
+    }
+
+    // ── Remove token FCM do Firestore ─────────────────────────────────────────
+    async function _removerToken() {
+        const token = localStorage.getItem(NOTIF_TOKEN);
+        if (!token) return;
+        try {
+            await _callFunction('removerTokenFCM', { token });
+        } catch (e) { console.warn('[FCM] Erro ao remover token:', e); }
+        localStorage.removeItem(NOTIF_TOKEN);
+        console.log('[FCM] Token removido do Firestore.');
+    }
+
+    // ── Solicita permissão e obtém token FCM ─────────────────────────────────
+    async function _ativar() {
+        if (!_suportado()) { toast('Navegador não suporta notificações.', 'error'); return false; }
+
+        if (Notification.permission === 'denied') {
+            toast('Notificações bloqueadas. Habilite nas configurações do navegador.', 'error');
+            return false;
+        }
+
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') { toast('Permissão negada.', 'error'); return false; }
+
+        try {
+            const mi = await _getMessaging();
+
+            // VAPID key — obtida no Firebase Console → Configurações do projeto → Cloud Messaging → Certificados Web Push
+            const VAPID_KEY = window.FIREBASE_VAPID_KEY || '';
+
+            const token = await mi.getToken(mi.m, {
+                vapidKey:            VAPID_KEY,
+                serviceWorkerRegistration: mi.swReg
+            });
+
+            if (!token) throw new Error('Token FCM vazio — verifique a VAPID key.');
+
+            await _registrarToken(token);
+
+            // Escuta mensagens com app ABERTO (foreground)
+            mi.onMessage(mi.m, (payload) => {
+                const titulo = payload.notification?.title || '💰 Finanças LHSC';
+                const corpo  = payload.notification?.body  || '';
+                toast(`🔔 ${titulo}: ${corpo}`, 'success');
+            });
+
+            return true;
+        } catch (e) {
+            console.error('[FCM] Erro ao ativar:', e);
+            toast('Erro ao ativar notificações. Verifique o console.', 'error');
+            return false;
         }
     }
 
-    // Reinicia a contagem a cada interação do usuário
-    function _reiniciar() {
-        // Só conta quando o usuário está logado (app-screen visível)
-        const appScreen = document.getElementById('app-screen');
-        if (!appScreen || appScreen.classList.contains('hidden')) return;
-
-        _resetar();
-
-        // Aviso 1 minuto antes de deslogar
-        _timerAviso = setTimeout(() => {
-            const t = document.getElementById('toast');
-            if (t) {
-                t.textContent = '⏳ Você será desconectado em 1 minuto por inatividade.';
-                t.className = 'toast toast-error';
-                t.classList.remove('hidden');
-                _toastAviso = t;
-                // Não esconde automaticamente — some quando o usuário interagir
+    // ── Liga/desliga notificações ─────────────────────────────────────────────
+    window.toggleNotificacoesPush = async function () {
+        const ativa = localStorage.getItem(NOTIF_KEY) === 'true';
+        if (ativa) {
+            await _removerToken();
+            localStorage.setItem(NOTIF_KEY, 'false');
+            _atualizarBtnNotifPush();
+            toast('Notificações desativadas.', 'success');
+        } else {
+            const ok = await _ativar();
+            if (ok) {
+                localStorage.setItem(NOTIF_KEY, 'true');
+                _atualizarBtnNotifPush();
+                toast('Notificações ativadas! Você receberá alertas diários às 8h.', 'success');
+                _verificarENotificarLocal();
             }
-        }, TEMPO_INATIVO_MS - AVISO_ANTES_MS);
+        }
+    };
 
-        // Logout após 15 minutos sem atividade
-        _timerLogout = setTimeout(() => {
-            _toastAviso = null;
-            if (typeof fazerLogout === 'function') {
-                fazerLogout();
-                // Mostra mensagem na tela de login após deslogar
-                setTimeout(() => {
-                    const err = document.getElementById('login-error');
-                    if (err) {
-                        err.style.color = '#e67e22';
-                        err.innerText = 'Sessão encerrada por inatividade.';
-                    }
-                }, 300);
+    // ── Atualiza botão na aba Configurações ───────────────────────────────────
+    function _atualizarBtnNotifPush() {
+        const btn  = document.getElementById('btn-notif-push');
+        const txt  = document.getElementById('btn-notif-push-txt');
+        const ic   = document.getElementById('btn-notif-push-ic');
+        const ativa = Notification.permission === 'granted' &&
+                      localStorage.getItem(NOTIF_KEY) === 'true';
+        if (txt) txt.textContent = ativa ? 'Desativar Notificações' : 'Ativar Notificações';
+        if (ic)  ic.className    = ativa ? 'fas fa-bell-slash' : 'fas fa-bell';
+        if (btn) {
+            btn.classList.toggle('btn-danger',  ativa);
+            btn.classList.toggle('btn-primary', !ativa);
+        }
+        const statusTxt = document.getElementById('notif-push-status-txt');
+        if (statusTxt) {
+            if (Notification.permission === 'denied') {
+                statusTxt.textContent = '🚫 Bloqueado pelo navegador';
+            } else {
+                statusTxt.textContent = ativa ? '🔔 Ativadas — alertas diários às 8h' : '🔕 Desativadas';
             }
-        }, TEMPO_INATIVO_MS);
+        }
+    }
+    window._atualizarBtnNotifPush = _atualizarBtnNotifPush;
+
+    // ── Verificação LOCAL (com app aberto) — complementa o FCM ───────────────
+    function _verificarENotificarLocal() {
+        if (Notification.permission !== 'granted') return;
+        if (localStorage.getItem(NOTIF_KEY) !== 'true') return;
+
+        const hoje = new Date().toISOString().slice(0, 10);
+        let vistos;
+        try { vistos = JSON.parse(localStorage.getItem(NOTIF_VISTAS) || '{}'); } catch { vistos = {}; }
+        if (vistos._data !== hoje) vistos = { _data: hoje };
+
+        const expandidas = typeof _expandirAPagar === 'function'
+            ? _expandirAPagar(getData('a_pagar', []))
+            : getData('a_pagar', []);
+
+        const hoje_d = new Date(); hoje_d.setHours(0,0,0,0);
+        const em3    = new Date(hoje_d); em3.setDate(em3.getDate() + 3);
+
+        expandidas.forEach(item => {
+            if (item.pago) return;
+            const nome  = item._isParcelado ? item._parcelaNome : item.descricao;
+            const valor = item._valorParcela || parseFloat(item.valor) || 0;
+            const venc  = new Date((item.vencimento || '') + 'T00:00:00');
+            const tag   = `${item._instanciaId || item.id}`;
+
+            const enviar = (titulo, corpo, sufixo) => {
+                const k = tag + sufixo;
+                if (vistos[k]) return;
+                vistos[k] = true;
+                navigator.serviceWorker.ready.then(reg => {
+                    reg.showNotification(titulo, {
+                        body: corpo, icon: './icon-192.png', badge: './icon-192.png',
+                        tag: k, vibrate: [200,100,200], data: { url: './' }
+                    });
+                }).catch(() => {
+                    try { new Notification(titulo, { body: corpo, icon: './icon-192.png' }); } catch(_) {}
+                });
+            };
+
+            if (venc < hoje_d) {
+                enviar('⚠️ Conta vencida',
+                    `${nome} — ${brl(valor)} (venceu em ${typeof _fmtData === 'function' ? _fmtData(item.vencimento) : item.vencimento})`,
+                    '_venc');
+            } else if (venc <= em3) {
+                const dias = Math.ceil((venc - hoje_d) / 86400000);
+                const label = dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`;
+                enviar('📅 Conta próxima', `${nome} — ${brl(valor)} vence ${label}`, '_prox');
+            }
+        });
+
+        localStorage.setItem(NOTIF_VISTAS, JSON.stringify(vistos));
     }
 
-    // Eventos que indicam atividade do usuário
-    const EVENTOS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'touchmove', 'scroll', 'click'];
-    EVENTOS.forEach(ev => document.addEventListener(ev, _reiniciar, { passive: true }));
+    // ── Re-registra o token quando o usuário logar ────────────────────────────
+    // (garante que o token está sempre válido no Firestore)
+    async function _reativarSeAtivo() {
+        if (localStorage.getItem(NOTIF_KEY) !== 'true') return;
+        if (Notification.permission !== 'granted') return;
+        try {
+            const mi    = await _getMessaging();
+            const VAPID = window.FIREBASE_VAPID_KEY || '';
+            const token = await mi.getToken(mi.m, {
+                vapidKey: VAPID,
+                serviceWorkerRegistration: mi.swReg
+            });
+            if (token) {
+                await _registrarToken(token);
+                mi.onMessage(mi.m, (payload) => {
+                    const t = payload.notification?.title || '💰 Finanças LHSC';
+                    const b = payload.notification?.body  || '';
+                    toast(`🔔 ${t}: ${b}`, 'success');
+                });
+            }
+        } catch(e) { console.warn('[FCM] Re-ativação falhou:', e); }
+        _verificarENotificarLocal();
+        setInterval(_verificarENotificarLocal, CHECK_INTERVAL_MS);
+    }
 
-    // Inicia a contagem quando o Firebase confirmar o login
+    // ── Inicia quando o usuário logar ─────────────────────────────────────────
     window.addEventListener('firebaseReady', () => {
         setTimeout(() => {
             const auth = window._firebaseAuth;
-            if (auth) {
-                import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js')
-                    .then(({ onAuthStateChanged }) => {
-                        onAuthStateChanged(auth, user => {
-                            if (user) _reiniciar(); // logou → começa a contar
-                            else _resetar();        // deslogou → para de contar
-                        });
+            if (!auth) return;
+            import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js')
+                .then(({ onAuthStateChanged }) => {
+                    onAuthStateChanged(auth, user => {
+                        if (user) {
+                            _reativarSeAtivo();
+                            _atualizarBtnNotifPush();
+                        } else {
+                            localStorage.removeItem(NOTIF_TOKEN);
+                        }
                     });
-            }
-        }, 600);
+                });
+        }, 800);
     });
+
+    // Atualiza botão ao abrir Configurações
+    const _origRenderConf = window.renderizarConfiguracoes;
+    if (typeof _origRenderConf === 'function') {
+        window.renderizarConfiguracoes = function () {
+            _origRenderConf();
+            _atualizarBtnNotifPush();
+        };
+    }
 
 })();
