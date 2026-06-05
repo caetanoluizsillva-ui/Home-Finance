@@ -6,15 +6,17 @@
 // ==========================================
 ;(function () {
 
-  // ── Chaves sincronizadas ──────────────────────────────────────────────────
+  // ── Chaves sincronizadas via Firestore ───────────────────────────────────
+  // cfg_senha_exclusao DEVE ser sincronizada: a senha de exclusão precisa
+  // ser a mesma em todos os aparelhos do mesmo usuário.
   const SYNC_KEYS = [
     'despesas_gastos', 'a_pagar', 'receitas', 'cartoes',
     'cat_despesas', 'cat_receitas', 'tipos_despesa', 'metas',
-    'gastos_cartao'
+    'gastos_cartao', 'cfg_senha_exclusao'
   ];
   // Chaves de configuração local (NÃO sincronizadas — preferências por aparelho)
   const LOCAL_ONLY_KEYS = [
-    'valoresOcultos', 'cfg_mes', 'cfg_ano', 'cfg_senha_exclusao'
+    'valoresOcultos', 'cfg_mes', 'cfg_ano'
   ];
 
   const COL = 'financeiro';
@@ -53,8 +55,9 @@
         _syncAtivo &&
         !_escrevendo &&
         SYNC_KEYS.includes(key)) {
-      // Remove a chave do Firestore gravando array vazio
-      _origSet.call(localStorage, key, JSON.stringify([]));
+      // Grava null para chaves escalares (ex: cfg_senha_exclusao) ou [] para listas
+      const valorVazio = key === 'cfg_senha_exclusao' ? 'null' : JSON.stringify([]);
+      _origSet.call(localStorage, key, valorVazio);
       _agendarPush(key);
     }
   };
@@ -78,7 +81,14 @@
       const payload = {};
       keys.forEach(k => {
         const raw = _origGet.call(localStorage, k);
-        try { payload[k] = raw ? JSON.parse(raw) : []; } catch { payload[k] = []; }
+        try {
+          // cfg_senha_exclusao é uma string escalar (hash SHA-256 ou null)
+          if (k === 'cfg_senha_exclusao') {
+            payload[k] = (raw && raw !== 'null') ? raw : null;
+          } else {
+            payload[k] = raw ? JSON.parse(raw) : [];
+          }
+        } catch { payload[k] = []; }
       });
       await setDoc(doc(_db, COL, DOC), payload, { merge: true });
       _setStatus('ok');
@@ -111,7 +121,14 @@
       const payload = {};
       SYNC_KEYS.forEach(k => {
         const raw = _origGet.call(localStorage, k);
-        try { payload[k] = raw ? JSON.parse(raw) : []; } catch { payload[k] = []; }
+        try {
+          // cfg_senha_exclusao é uma string escalar (hash SHA-256 ou null)
+          if (k === 'cfg_senha_exclusao') {
+            payload[k] = (raw && raw !== 'null') ? raw : null;
+          } else {
+            payload[k] = raw ? JSON.parse(raw) : [];
+          }
+        } catch { payload[k] = []; }
       });
       await setDoc(doc(_db, COL, DOC), payload, { merge: true });
       console.log('[Sync] Dados locais enviados ao Firestore (primeira vez).');
@@ -166,10 +183,23 @@
         _escrevendo = true;
         SYNC_KEYS.forEach(k => {
           if (dados[k] !== undefined) {
-            _origSet.call(localStorage, k, JSON.stringify(dados[k]));
+            // cfg_senha_exclusao é uma string escalar — não serializar com JSON.stringify
+            if (k === 'cfg_senha_exclusao') {
+              if (dados[k] === null || dados[k] === undefined) {
+                _origRem.call(localStorage, k);
+              } else {
+                _origSet.call(localStorage, k, dados[k]);
+              }
+            } else {
+              _origSet.call(localStorage, k, JSON.stringify(dados[k]));
+            }
           }
         });
         _escrevendo = false;
+        // Atualiza badge de senha de exclusão se a aba configurações estiver visível
+        if (typeof _atualizarStatusSenhaExclusao === 'function') {
+          setTimeout(_atualizarStatusSenhaExclusao, 60);
+        }
         _setStatus('ok');
 
         // ── Sincroniza status de faturas de cartão ────────────────────────
@@ -212,8 +242,17 @@
         const dados = snap.data();
         _escrevendo = true;
         SYNC_KEYS.forEach(k => {
-          if (dados[k] !== undefined)
-            _origSet.call(localStorage, k, JSON.stringify(dados[k]));
+          if (dados[k] !== undefined) {
+            if (k === 'cfg_senha_exclusao') {
+              if (dados[k] === null || dados[k] === undefined) {
+                _origRem.call(localStorage, k);
+              } else {
+                _origSet.call(localStorage, k, dados[k]);
+              }
+            } else {
+              _origSet.call(localStorage, k, JSON.stringify(dados[k]));
+            }
+          }
         });
         _escrevendo = false;
         _setStatus('ok');
