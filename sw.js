@@ -4,7 +4,7 @@
 
 // Atualize esta versão (ex: v12, v13) sempre que alterar o código do app.js, index.html ou style.css.
 // Isso força os smartphones a baixarem a versão mais recente do GitHub.
-const CACHE_NAME = 'financas-v15';
+const CACHE_NAME = 'financas-v16';
 
 // Lista de arquivos fundamentais para o sistema funcionar offline
 const STATIC_ASSETS = [

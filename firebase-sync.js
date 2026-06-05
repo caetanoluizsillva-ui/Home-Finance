@@ -1,41 +1,97 @@
 // ==========================================
-// firebase-sync.js
-// DEVE SER O PRIMEIRO SCRIPT NO index.html
+// firebase-sync.js  —  FIRESTORE-FIRST
+// Os dados vivem no Firestore.
+// localStorage é apenas um cache de leitura
+// rápida; NUNCA é a fonte da verdade.
 // ==========================================
 ;(function () {
 
+  // ── Chaves sincronizadas ──────────────────────────────────────────────────
   const SYNC_KEYS = [
     'despesas_gastos', 'a_pagar', 'receitas', 'cartoes',
     'cat_despesas', 'cat_receitas', 'tipos_despesa', 'metas',
     'gastos_cartao'
   ];
+  // Chaves de configuração local (NÃO sincronizadas — preferências por aparelho)
+  const LOCAL_ONLY_KEYS = [
+    'valoresOcultos', 'cfg_mes', 'cfg_ano', 'cfg_senha_exclusao'
+  ];
+
   const COL = 'financeiro';
   const DOC = 'meus-dados';
 
   let _db          = null;
   let _syncAtivo   = false;
-  let _escrevendo  = false;   // true enquanto onSnapshot grava → não re-sobe ao Firestore
+  let _escrevendo  = false;   // true enquanto onSnapshot escreve → não re-dispara push
   let _unsubscribe = null;
-  let _fsCache     = null;    // módulo Firestore importado (cached)
+  let _fsCache     = null;
+  let _pendingPushKeys = new Set(); // chaves aguardando push em lote
+  let _pushTimer   = null;
 
-  // ─── Referências ao setItem/getItem originais ──────────────────────────────
-  // Capturadas AGORA, antes de qualquer outro script rodar.
+  // ─── Referências originais do Storage ────────────────────────────────────
   const _origSet = Storage.prototype.setItem;
   const _origGet = Storage.prototype.getItem;
+  const _origRem = Storage.prototype.removeItem;
 
-  // ─── Interceptor instalado imediatamente ──────────────────────────────────
-  // Toda chamada localStorage.setItem em app.js / render.js passa por aqui.
+  // ─── Interceptor de escrita ───────────────────────────────────────────────
+  // Toda chamada localStorage.setItem feita pelo app passa por aqui.
+  // Se a chave pertence a SYNC_KEYS, agenda um push em lote para o Firestore.
   Storage.prototype.setItem = function (key, value) {
-    _origSet.call(this, key, value);                   // grava local normalmente
+    _origSet.call(this, key, value);
     if (this === localStorage &&
         _syncAtivo &&
         !_escrevendo &&
         SYNC_KEYS.includes(key)) {
-      _push(key, value);                               // sobe ao Firestore
+      _agendarPush(key);
     }
   };
 
-  // ─── Importa módulo Firestore (uma vez, reutiliza cache) ─────────────────
+  // Intercepta removeItem para propagar remoção ao Firestore
+  Storage.prototype.removeItem = function (key) {
+    _origRem.call(this, key);
+    if (this === localStorage &&
+        _syncAtivo &&
+        !_escrevendo &&
+        SYNC_KEYS.includes(key)) {
+      // Remove a chave do Firestore gravando array vazio
+      _origSet.call(localStorage, key, JSON.stringify([]));
+      _agendarPush(key);
+    }
+  };
+
+  // ─── Push em lote (debounce 400 ms) ──────────────────────────────────────
+  // Agrupa múltiplos setItem consecutivos numa única escrita ao Firestore.
+  function _agendarPush(key) {
+    _pendingPushKeys.add(key);
+    if (_pushTimer) clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(_flushPush, 400);
+  }
+
+  async function _flushPush() {
+    if (!_db || _pendingPushKeys.size === 0) return;
+    const keys = Array.from(_pendingPushKeys);
+    _pendingPushKeys.clear();
+    _pushTimer = null;
+    try {
+      _setStatus('salvando');
+      const { doc, setDoc } = await _fs();
+      const payload = {};
+      keys.forEach(k => {
+        const raw = _origGet.call(localStorage, k);
+        try { payload[k] = raw ? JSON.parse(raw) : []; } catch { payload[k] = []; }
+      });
+      await setDoc(doc(_db, COL, DOC), payload, { merge: true });
+      _setStatus('ok');
+    } catch (e) {
+      console.error('[Sync] push erro:', e);
+      _setStatus('erro');
+      // Re-agenda para tentar novamente
+      keys.forEach(k => _pendingPushKeys.add(k));
+      _pushTimer = setTimeout(_flushPush, 5000);
+    }
+  }
+
+  // ─── Importa Firestore (cached) ───────────────────────────────────────────
   async function _fs() {
     if (!_fsCache) {
       _fsCache = await import(
@@ -45,24 +101,8 @@
     return _fsCache;
   }
 
-  // ─── Sobe UMA chave ao Firestore ─────────────────────────────────────────
-  async function _push(key, rawValue) {
-    if (!_db) return;
-    try {
-      _setStatus('salvando');
-      const { doc, setDoc } = await _fs();
-      let val;
-      try { val = JSON.parse(rawValue); } catch { val = rawValue; }
-      await setDoc(doc(_db, COL, DOC), { [key]: val }, { merge: true });
-      _setStatus('ok');
-    } catch (e) {
-      console.error('[Sync] push erro:', key, e);
-      _setStatus('erro');
-    }
-  }
-
-  // ─── Sobe TODO o localStorage ao Firestore ───────────────────────────────
-  // Chamado apenas quando o documento Firestore não existe ainda.
+  // ─── Sobe TODOS os dados locais ao Firestore ──────────────────────────────
+  // Chamado APENAS quando o documento Firestore ainda não existe (primeiro uso).
   async function _pushTudo() {
     if (!_db) return;
     try {
@@ -82,7 +122,7 @@
     }
   }
 
-  // ─── Re-renderiza a aba visível após receber dados do Firestore ──────────
+  // ─── Re-renderiza a aba visível ───────────────────────────────────────────
   function _render() {
     setTimeout(() => {
       try {
@@ -106,7 +146,7 @@
     }, 50);
   }
 
-  // ─── Listener em tempo real ───────────────────────────────────────────────
+  // ─── onSnapshot: escuta mudanças em tempo real ───────────────────────────
   async function _listen() {
     const { doc, onSnapshot } = await _fs();
     if (_unsubscribe) _unsubscribe();
@@ -115,12 +155,14 @@
       doc(_db, COL, DOC),
       (snap) => {
         if (!snap.exists()) {
-          // Documento vazio = primeira vez → envia dados locais
+          // Documento inexistente = primeiro acesso → envia dados locais
           _pushTudo();
           return;
         }
+
         const dados = snap.data();
-        // Grava no localStorage sem disparar o interceptor (evita loop)
+
+        // ── Grava no cache local SEM disparar o interceptor (evita loop) ─
         _escrevendo = true;
         SYNC_KEYS.forEach(k => {
           if (dados[k] !== undefined) {
@@ -130,42 +172,79 @@
         _escrevendo = false;
         _setStatus('ok');
 
-        // ── Ligação inversa A Pagar → Cartões ─────────────────────────────
-        // Após receber dados do Firestore, garante que faturas de cartão em
-        // a_pagar que voltaram para pago=false sejam refletidas na aba Cartões.
-        // Usa timeout para deixar o DOM estabilizar antes de re-renderizar.
-        setTimeout(function() {
-            if (typeof window._ccSincronizarStatusDeFaturas === 'function') {
-                window._ccSincronizarStatusDeFaturas();
-            }
+        // ── Sincroniza status de faturas de cartão ────────────────────────
+        setTimeout(function () {
+          if (typeof window._ccSincronizarStatusDeFaturas === 'function') {
+            window._ccSincronizarStatusDeFaturas();
+          }
         }, 80);
 
         _render();
-        console.log('[Sync] localStorage atualizado com dados do Firestore.');
+        console.log('[Sync] Cache local atualizado com dados do Firestore.');
       },
       (err) => {
         console.error('[Sync] listener erro:', err);
         _setStatus('erro');
       }
     );
-    console.log('[Sync] Listener Firestore ativo.');
+    console.log('[Sync] Listener Firestore ativo — modo Firestore-first.');
   }
 
-  // ─── Indicador visual (elementos opcionais no HTML) ───────────────────────
+  // ─── Indicador visual ─────────────────────────────────────────────────────
   function _setStatus(s) {
     const cores  = { ok: '#27ae60', salvando: '#f39c12', erro: '#e74c3c' };
-    const labels = { ok: '☁ Sincronizado', salvando: '↑ Salvando...', erro: '✗ Erro' };
+    const labels = { ok: '☁ Sincronizado', salvando: '↑ Salvando...', erro: '✗ Erro sync' };
     const dot = document.getElementById('sync-status-dot');
     const txt = document.getElementById('sync-status-txt');
     if (dot) dot.style.color = cores[s] || '#999';
     if (txt) txt.textContent  = labels[s] || s;
   }
 
-  // ─── Ponto de entrada — chamado pelo firebase-config.js após login ────────
+  // ─── API pública: forçar sincronização manual ─────────────────────────────
+  // Útil para o botão "Sincronizar agora" na aba Configurações.
+  window.sincronizarAgora = async function () {
+    if (!_db) { toast('Sem conexão com o Firebase.', 'error'); return; }
+    _setStatus('salvando');
+    try {
+      const { doc, getDoc } = await _fs();
+      const snap = await getDoc(doc(_db, COL, DOC));
+      if (snap.exists()) {
+        const dados = snap.data();
+        _escrevendo = true;
+        SYNC_KEYS.forEach(k => {
+          if (dados[k] !== undefined)
+            _origSet.call(localStorage, k, JSON.stringify(dados[k]));
+        });
+        _escrevendo = false;
+        _setStatus('ok');
+        _render();
+        if (typeof toast === 'function') toast('Dados sincronizados!', 'success');
+      }
+    } catch (e) {
+      console.error('[Sync] sincronizarAgora erro:', e);
+      _setStatus('erro');
+      if (typeof toast === 'function') toast('Erro ao sincronizar.', 'error');
+    }
+  };
+
+  // ─── Ponto de entrada ─────────────────────────────────────────────────────
   async function iniciarSync(firebaseApp) {
     try {
-      const { getFirestore } = await _fs();
-      _db        = getFirestore(firebaseApp);
+      const { getFirestore, enableIndexedDbPersistence } = await _fs();
+      _db = getFirestore(firebaseApp);
+
+      // Habilita persistência offline (IndexedDB) — dados disponíveis mesmo sem internet
+      try {
+        await enableIndexedDbPersistence(_db);
+        console.log('[Sync] Persistência offline (IndexedDB) ativada.');
+      } catch (pe) {
+        if (pe.code === 'failed-precondition') {
+          console.warn('[Sync] Múltiplas abas abertas — persistência offline desativada nesta aba.');
+        } else if (pe.code === 'unimplemented') {
+          console.warn('[Sync] Navegador não suporta persistência offline.');
+        }
+      }
+
       _syncAtivo = true;
       _setStatus('salvando');
       await _listen();
