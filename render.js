@@ -332,6 +332,12 @@ function excluirDespesa(id) {
         }
 
         localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
+
+        // Reseta rastreador: painel do cartão volta para o mês da fatura pendente
+        if (typeof _ccPainelCartaoAnterior !== 'undefined') {
+            _ccPainelCartaoAnterior = null;
+        }
+
         renderizarDespesas();
         renderizarAPagar();
         if (typeof renderizarCartoes === 'function') renderizarCartoes();
@@ -597,6 +603,12 @@ function marcarPago(instanciaId) {
     });
     localStorage.setItem('despesas_gastos', JSON.stringify(despesas));
 
+    // Se era uma fatura de cartão, reseta o rastreador de mês para que
+    // o painel avance automaticamente para o próximo mês pendente
+    if (itemOriginal._faturaCartao && typeof _ccPainelCartaoAnterior !== 'undefined') {
+        _ccPainelCartaoAnterior = null;
+    }
+
     renderizarAPagar();
     renderizarDespesas();
     if (typeof renderizarCartoes === 'function') renderizarCartoes();
@@ -818,9 +830,10 @@ function excluirReceita(id) {
 //   ID da conta a pagar: 'fatura_<cartaoId>_<AAAA>_<MM>'
 
 // Estado interno da aba Cartões
-let _ccCartaoSel = null;  // id do cartão selecionado
-let _ccMesSel    = null;  // mês da fatura (0-11 ou null = mês atual)
-let _ccAnoSel    = null;
+let _ccCartaoSel           = null;  // id do cartão selecionado
+let _ccMesSel              = null;  // mês da fatura exibido no painel (0-11)
+let _ccAnoSel              = null;
+let _ccPainelCartaoAnterior = null; // detecta troca de cartão para resetar o mês ativo
 
 // ── Helpers de fatura ─────────────────────────────────────────────────────────
 
@@ -963,6 +976,42 @@ function _ccRecalcularTodoCartao(cartaoId) {
     });
 }
 
+// ── Helpers de status de fatura ──────────────────────────────────────────────
+
+/**
+ * Retorna o status da fatura de um cartão num dado mês/ano.
+ * Retorna: 'pago' | 'pendente' | 'vazia'
+ */
+function _ccStatusFatura(cartaoId, mes, ano) {
+    const faturaId = `fatura_${cartaoId}_${ano}_${String(mes + 1).padStart(2,'0')}`;
+    const fatura   = getData('a_pagar').find(x => x.id === faturaId);
+    const total    = _ccTotalFatura(cartaoId, mes, ano);
+    if (total <= 0 && !fatura) return 'vazia';
+    if (fatura && fatura.pago) return 'pago';
+    return 'pendente';
+}
+
+/**
+ * Calcula o mês/ano "ativo" do cartão para exibir na grade:
+ * - Fatura pendente mais antiga → mostra esse mês
+ * - Tudo pago ou sem faturas → mostra o mês corrente
+ */
+function _ccMesAtivo(cartaoId) {
+    const apagar = getData('a_pagar');
+    const faturasPendentes = apagar
+        .filter(x => x._faturaCartao && x._cartaoId === cartaoId && !x.pago)
+        .map(x => {
+            const partes = x.id.replace(`fatura_${cartaoId}_`, '').split('_');
+            return { ano: parseInt(partes[0]), mes: parseInt(partes[1]) - 1 };
+        })
+        .sort((a, b) => a.ano !== b.ano ? a.ano - b.ano : a.mes - b.mes);
+
+    if (faturasPendentes.length > 0) return faturasPendentes[0];
+
+    const hoje = new Date();
+    return { mes: hoje.getMonth(), ano: hoje.getFullYear() };
+}
+
 // ── Renderização da grade de cartões ─────────────────────────────────────────
 
 function renderizarCartoes() {
@@ -971,10 +1020,11 @@ function renderizarCartoes() {
     const painel  = document.getElementById('cc-painel');
     if (!grade) return;
 
-    // Inicializa mês/ano sincronizando com o mês global selecionado
+    // Inicializa mês/ano na primeira abertura
     if (_ccMesSel === null) {
-        _ccMesSel = getMesSel() !== null ? getMesSel() : new Date().getMonth();
-        _ccAnoSel = getAnoSel();
+        const hoje = new Date();
+        _ccMesSel = hoje.getMonth();
+        _ccAnoSel = hoje.getFullYear();
     }
 
     if (cartoes.length === 0) {
@@ -989,10 +1039,20 @@ function renderizarCartoes() {
     }
 
     grade.innerHTML = cartoes.map(c => {
-        const totalMes = _ccTotalFatura(c.id, _ccMesSel, _ccAnoSel);
+        // Cada card mostra o mês ativo próprio (pendente mais antigo ou mês atual)
+        const mesAtivo = _ccMesAtivo(c.id);
+        const totalMes = _ccTotalFatura(c.id, mesAtivo.mes, mesAtivo.ano);
+        const status   = _ccStatusFatura(c.id, mesAtivo.mes, mesAtivo.ano);
         const pct      = c.limite > 0 ? Math.min(100, Math.round(totalMes / c.limite * 100)) : 0;
         const corBar   = pct >= 90 ? '#e74c3c' : pct >= 70 ? '#f39c12' : '#2ecc71';
         const isAtivo  = _ccCartaoSel === c.id;
+
+        const statusBadge = status === 'pago'
+            ? `<span style="background:#27ae6022;color:#27ae60;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px">&#10003; PAGO</span>`
+            : status === 'pendente'
+            ? `<span style="background:#e74c3c22;color:#e74c3c;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px">&#9679; PENDENTE</span>`
+            : '';
+
         return `
         <div class="cc-card ${isAtivo ? 'cc-card--ativo' : ''}"
              style="--cc-cor:${c.cor||'#3498db'}"
@@ -1000,11 +1060,12 @@ function renderizarCartoes() {
             <div class="cc-card-topo">
                 <div class="cc-card-bandeira">${_ccIconeBandeira(c.bandeira)}</div>
                 <span class="cc-card-nome">${c.nome}</span>
+                ${statusBadge}
             </div>
             <div class="cc-card-numero">${c.digitos ? '•••• •••• •••• ' + c.digitos : '•••• •••• •••• ••••'}</div>
             <div class="cc-card-rodape">
                 <div>
-                    <div class="cc-card-label">Fatura ${MESES_ABREV[_ccMesSel]}/${String(_ccAnoSel).slice(2)}</div>
+                    <div class="cc-card-label">Fatura ${MESES_ABREV[mesAtivo.mes]}/${String(mesAtivo.ano).slice(2)}</div>
                     <div class="cc-card-fatura valor-dinheiro">${brl(totalMes)}</div>
                 </div>
                 ${c.limite > 0 ? `<div style="text-align:right">
@@ -1034,8 +1095,12 @@ function _ccIconeBandeira(bandeira) {
 }
 
 function ccSelecionarCartao(id) {
+    // Se trocou de cartão, reseta o rastreador para que o painel use o mês ativo correto
+    if (_ccCartaoSel !== id) {
+        _ccPainelCartaoAnterior = null;
+    }
     _ccCartaoSel = id;
-    renderizarCartoes(); // recarrega grade com destaque
+    renderizarCartoes();
 }
 
 // ── Painel de detalhes ────────────────────────────────────────────────────────
@@ -1047,14 +1112,26 @@ function _ccRenderizarPainel(cartaoId) {
 
     painel.classList.remove('hidden');
 
+    // Usa o mês ativo do painel (_ccMesSel / _ccAnoSel) — controlado pela navegação do usuário
+    // Na primeira exibição de um cartão, sincroniza com o mês ativo (pendente mais antigo)
+    const mesAtivo = _ccMesAtivo(cartaoId);
+    // Só aplica o mês ativo automático se o usuário não mudou manualmente
+    // (detectamos isso: se _ccCartaoSel acabou de mudar, resetamos para o mês ativo)
+    if (_ccPainelCartaoAnterior !== cartaoId) {
+        _ccMesSel = mesAtivo.mes;
+        _ccAnoSel = mesAtivo.ano;
+        _ccPainelCartaoAnterior = cartaoId;
+    }
+
     // Chip e info
     const chip = document.getElementById('cc-painel-chip');
     if (chip) { chip.textContent = '💳'; chip.style.background = cartao.cor || '#3498db'; }
     _set('cc-painel-nome', cartao.nome);
     _set('cc-painel-info', `${cartao.bandeira || ''}${cartao.digitos ? ' •••• ' + cartao.digitos : ''}${cartao.vencimento ? ' · Vence dia ' + cartao.vencimento : ''}`);
 
-    // Totais
+    // Totais do mês exibido no painel
     const total    = _ccTotalFatura(cartaoId, _ccMesSel, _ccAnoSel);
+    const status   = _ccStatusFatura(cartaoId, _ccMesSel, _ccAnoSel);
     const dispBrl  = cartao.limite > 0 ? brl(cartao.limite - total) : '—';
     const vencLabel = cartao.vencimento
         ? `Dia ${cartao.vencimento} de ${MESES_ABREV[_ccMesSel]}/${String(_ccAnoSel).slice(2)}`
@@ -1064,13 +1141,25 @@ function _ccRenderizarPainel(cartaoId) {
     _set('cc-limite-disp', dispBrl);
     _set('cc-venc-label', vencLabel);
 
+    // Badge de status da fatura no painel
+    const statusEl = document.getElementById('cc-fatura-status');
+    if (statusEl) {
+        if (status === 'pago') {
+            statusEl.innerHTML = `<span style="background:#27ae6022;color:#27ae60;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px">&#10003; Fatura Paga</span>`;
+        } else if (status === 'pendente') {
+            statusEl.innerHTML = `<span style="background:#e74c3c22;color:#e74c3c;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px">&#9679; Fatura Pendente</span>`;
+        } else {
+            statusEl.innerHTML = `<span style="background:#95a5a622;color:#95a5a6;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px">Sem gastos</span>`;
+        }
+    }
+
     // Barra de limite
-    const barWrap = document.getElementById('cc-limite-bar-wrap');
-    const barFill = document.getElementById('cc-limite-bar-fill');
+    const barWrap  = document.getElementById('cc-limite-bar-wrap');
+    const barFill  = document.getElementById('cc-limite-bar-fill');
     const barLabel = document.getElementById('cc-limite-bar-label');
     if (cartao.limite > 0) {
-        const pct  = Math.min(100, Math.round(total / cartao.limite * 100));
-        const cor  = pct >= 90 ? '#e74c3c' : pct >= 70 ? '#f39c12' : '#2ecc71';
+        const pct = Math.min(100, Math.round(total / cartao.limite * 100));
+        const cor = pct >= 90 ? '#e74c3c' : pct >= 70 ? '#f39c12' : '#2ecc71';
         if (barWrap)  barWrap.style.display = '';
         if (barFill)  { barFill.style.width = pct + '%'; barFill.style.background = cor; }
         if (barLabel) barLabel.textContent  = `${pct}% do limite utilizado (${brl(total)} de ${brl(cartao.limite)})`;
@@ -1096,7 +1185,10 @@ function _ccRenderizarGastos(cartaoId) {
     const cartao   = getData('cartoes').find(c => c.id === cartaoId);
     if (!lista || !cartao) return;
 
-    // Busca gastos cujas PARCELAS caem neste mês/ano
+    const statusFatura = _ccStatusFatura(cartaoId, _ccMesSel, _ccAnoSel);
+    const faturaPaga   = statusFatura === 'pago';
+
+    // Busca gastos cujas PARCELAS caem neste mês/ano — sempre, independente de pago
     const gastosBrutos = getData('gastos_cartao').filter(g => g.cartaoId === cartaoId);
     const gastosNaMes  = [];
 
@@ -1123,15 +1215,27 @@ function _ccRenderizarGastos(cartaoId) {
         return;
     }
 
-    lista.innerHTML = gastosNaMes.map(g => {
+    // Cabeçalho indicando status da fatura
+    const headerFatura = faturaPaga
+        ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#27ae6012;border-radius:10px;margin-bottom:10px;font-size:13px;color:#27ae60;font-weight:600">
+               <i class="fas fa-check-circle"></i> Fatura paga — gastos registrados abaixo
+           </div>`
+        : '';
+
+    lista.innerHTML = headerFatura + gastosNaMes.map(g => {
         const cat   = cats.find(c => c.id === g.categoriaId);
         const icone = cat ? cat.icone : '🛍️';
         const cor   = cat ? cat.cor   : '#95a5a6';
         const parcelaLabel = g._totalParc > 1
             ? `<span class="reg-tipo-tag">${g._parcela}/${g._totalParc}</span>` : '';
         const sub = [_fmtData(g.data), g.local].filter(Boolean).join(' · ');
+        // Se a fatura está paga, desabilita os botões de editar/excluir
+        const acoesBtns = faturaPaga
+            ? `<button class="btn-icon" style="opacity:0.35;cursor:default" title="Fatura já paga" disabled><i class="fas fa-lock"></i></button>`
+            : `<button class="btn-icon btn-edit" onclick="abrirModalGastoCartao('${g.id}')"><i class="fas fa-pen"></i></button>
+               <button class="btn-icon btn-del"  onclick="excluirGastoCartao('${g.id}')"><i class="fas fa-trash"></i></button>`;
         return `
-        <div class="reg-item">
+        <div class="reg-item" style="${faturaPaga ? 'opacity:0.75' : ''}">
             <div class="reg-icon" style="background:${cor}22;color:${cor}">${icone}</div>
             <div class="reg-info">
                 <span class="reg-nome">${g.descricao}</span>
@@ -1140,12 +1244,10 @@ function _ccRenderizarGastos(cartaoId) {
             <div class="reg-meio">
                 ${cat ? `<span class="reg-tipo-tag">${cat.nome}</span>` : ''}
                 ${parcelaLabel}
+                ${faturaPaga ? `<span class="reg-tipo-tag" style="background:#27ae6022;color:#27ae60">Pago</span>` : ''}
             </div>
             <span class="reg-valor text-danger valor-dinheiro">${brl(g._valorParcela)}${g._totalParc > 1 ? `<small style="font-size:10px;color:#999;display:block;text-align:right">Total: ${brl(g.valor)}</small>` : ''}</span>
-            <div class="reg-actions">
-                <button class="btn-icon btn-edit" onclick="abrirModalGastoCartao('${g.id}')"><i class="fas fa-pen"></i></button>
-                <button class="btn-icon btn-del"  onclick="excluirGastoCartao('${g.id}')"><i class="fas fa-trash"></i></button>
-            </div>
+            <div class="reg-actions">${acoesBtns}</div>
         </div>`;
     }).join('');
 }
