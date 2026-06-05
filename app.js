@@ -943,3 +943,84 @@ function fecharNotifPanel() {
         }
     });
 })();
+
+// ==========================================
+// LOGOUT AUTOMÁTICO POR INATIVIDADE (15 min)
+// ==========================================
+;(function _autoLogout() {
+    const TEMPO_INATIVO_MS = 15 * 60 * 1000; // 15 minutos
+    const AVISO_ANTES_MS   =  1 * 60 * 1000; // aviso 1 min antes
+
+    let _timerLogout = null;
+    let _timerAviso  = null;
+    let _toastAviso  = null;
+
+    // Cancela os timers ativos
+    function _resetar() {
+        clearTimeout(_timerLogout);
+        clearTimeout(_timerAviso);
+        // Remove o aviso visual se ainda estiver na tela
+        if (_toastAviso) {
+            _toastAviso.classList.add('hidden');
+            _toastAviso = null;
+        }
+    }
+
+    // Reinicia a contagem a cada interação do usuário
+    function _reiniciar() {
+        // Só conta quando o usuário está logado (app-screen visível)
+        const appScreen = document.getElementById('app-screen');
+        if (!appScreen || appScreen.classList.contains('hidden')) return;
+
+        _resetar();
+
+        // Aviso 1 minuto antes de deslogar
+        _timerAviso = setTimeout(() => {
+            const t = document.getElementById('toast');
+            if (t) {
+                t.textContent = '⏳ Você será desconectado em 1 minuto por inatividade.';
+                t.className = 'toast toast-error';
+                t.classList.remove('hidden');
+                _toastAviso = t;
+                // Não esconde automaticamente — some quando o usuário interagir
+            }
+        }, TEMPO_INATIVO_MS - AVISO_ANTES_MS);
+
+        // Logout após 15 minutos sem atividade
+        _timerLogout = setTimeout(() => {
+            _toastAviso = null;
+            if (typeof fazerLogout === 'function') {
+                fazerLogout();
+                // Mostra mensagem na tela de login após deslogar
+                setTimeout(() => {
+                    const err = document.getElementById('login-error');
+                    if (err) {
+                        err.style.color = '#e67e22';
+                        err.innerText = 'Sessão encerrada por inatividade.';
+                    }
+                }, 300);
+            }
+        }, TEMPO_INATIVO_MS);
+    }
+
+    // Eventos que indicam atividade do usuário
+    const EVENTOS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'touchmove', 'scroll', 'click'];
+    EVENTOS.forEach(ev => document.addEventListener(ev, _reiniciar, { passive: true }));
+
+    // Inicia a contagem quando o Firebase confirmar o login
+    window.addEventListener('firebaseReady', () => {
+        setTimeout(() => {
+            const auth = window._firebaseAuth;
+            if (auth) {
+                import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js')
+                    .then(({ onAuthStateChanged }) => {
+                        onAuthStateChanged(auth, user => {
+                            if (user) _reiniciar(); // logou → começa a contar
+                            else _resetar();        // deslogou → para de contar
+                        });
+                    });
+            }
+        }, 600);
+    });
+
+})();
