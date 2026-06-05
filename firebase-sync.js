@@ -129,6 +129,17 @@
         });
         _escrevendo = false;
         _setStatus('ok');
+
+        // ── Ligação inversa A Pagar → Cartões ─────────────────────────────
+        // Após receber dados do Firestore, garante que faturas de cartão em
+        // a_pagar que voltaram para pago=false sejam refletidas na aba Cartões.
+        // Usa timeout para deixar o DOM estabilizar antes de re-renderizar.
+        setTimeout(function() {
+            if (typeof window._ccSincronizarStatusDeFaturas === 'function') {
+                window._ccSincronizarStatusDeFaturas();
+            }
+        }, 80);
+
         _render();
         console.log('[Sync] localStorage atualizado com dados do Firestore.');
       },

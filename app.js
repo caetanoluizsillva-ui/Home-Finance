@@ -223,6 +223,309 @@ window.addEventListener('DOMContentLoaded', () => {
     }, 100);
 });
 
+// ==========================================
+// GUARD DE EXCLUSÃO — CONFIRMAÇÃO POR SENHA
+// ==========================================
+// Funções protegidas: despesas, a_pagar, cartões, gastos_cartao, categorias, tipos, metas
+// Excluídas da proteção: receitas, configurações, previsão
+
+;(function _instalarGuardExclusao() {
+
+    let _pendingCallback = null;
+    let _isMesAnterior   = false;
+
+    // ── Detecta se uma data/item pertence a mês anterior ao selecionado ──────
+    function _ehMesAnterior(dataISO) {
+        if (!dataISO) return false;
+        const d = new Date(dataISO + 'T00:00:00');
+        const hoje = new Date();
+        const mesAtual = hoje.getMonth();
+        const anoAtual = hoje.getFullYear();
+        // É mês anterior se for estritamente antes do mês atual real (não do selecionado)
+        if (d.getFullYear() < anoAtual) return true;
+        if (d.getFullYear() === anoAtual && d.getMonth() < mesAtual) return true;
+        return false;
+    }
+
+    // ── Abre o modal pedindo senha, executa callback após validação ───────────
+    window.confirmarExclusaoComSenha = function(callback, dataISO, avisoExtra) {
+        _pendingCallback = callback;
+        _isMesAnterior   = _ehMesAnterior(dataISO);
+
+        // Reseta UI
+        const inp = document.getElementById('excl-senha-input');
+        const err = document.getElementById('excl-senha-erro');
+        const avsEl = document.getElementById('excl-mes-anterior-aviso');
+        const avisoMsg = document.getElementById('excl-aviso-msg');
+        if (inp) { inp.value = ''; inp.type = 'password'; }
+        if (err) { err.textContent = ''; err.style.display = 'none'; }
+        const olho = document.getElementById('excl-olho-icon');
+        if (olho) olho.className = 'fas fa-eye';
+
+        // Aviso mês anterior
+        if (avsEl) avsEl.classList.toggle('hidden', !_isMesAnterior);
+        // Mensagem customizada
+        if (avisoMsg && avisoExtra) avisoMsg.textContent = avisoExtra;
+        else if (avisoMsg) avisoMsg.textContent = 'A exclusão de dados pode gerar inconsistências no sistema, especialmente em registros com vínculos (faturas, parcelas, relatórios).';
+
+        document.getElementById('modal-confirmar-exclusao').classList.remove('hidden');
+        setTimeout(() => { if (inp) inp.focus(); }, 100);
+    };
+
+    // ── Toggler do olho ───────────────────────────────────────────────────────
+    window._exclToggleSenha = function() {
+        const inp = document.getElementById('excl-senha-input');
+        const ic  = document.getElementById('excl-olho-icon');
+        if (!inp) return;
+        if (inp.type === 'password') { inp.type = 'text'; if(ic) ic.className = 'fas fa-eye-slash'; }
+        else                         { inp.type = 'password'; if(ic) ic.className = 'fas fa-eye'; }
+    };
+
+    // ── Confirmar: valida senha (customizada ou Firebase) ─────────────────────
+    window._exclConfirmar = async function() {
+        const inp = document.getElementById('excl-senha-input');
+        const err = document.getElementById('excl-senha-erro');
+        const btn = document.getElementById('excl-btn-confirmar');
+        const senha = inp ? inp.value : '';
+
+        if (!senha) {
+            if (err) { err.textContent = 'Digite sua senha para confirmar.'; err.style.display = 'block'; }
+            return;
+        }
+
+        // Bloqueia botão enquanto valida
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validando...'; }
+
+        try {
+            // 1º — verifica se há senha de exclusão personalizada salva
+            const senhaCustom = localStorage.getItem('cfg_senha_exclusao');
+
+            if (senhaCustom) {
+                // Valida contra a senha customizada (hash simples)
+                const hashDigitado = await _hashSenha(senha);
+                if (hashDigitado !== senhaCustom) {
+                    throw { message: 'Senha de exclusão incorreta. Tente novamente.' };
+                }
+            } else {
+                // Fallback: usa autenticação Firebase (senha de acesso)
+                const auth = window._firebaseAuth;
+                const api  = window._firebaseAPI;
+
+                if (auth && auth.currentUser && api) {
+                    const { EmailAuthProvider, reauthenticateWithCredential } = await import(
+                        'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js'
+                    );
+                    const cred = EmailAuthProvider.credential(auth.currentUser.email, senha);
+                    await reauthenticateWithCredential(auth.currentUser, cred);
+                } else {
+                    // Fallback offline: compara com a senha guardada em sessão
+                    if (!window._sessaoSenha || senha !== window._sessaoSenha) {
+                        throw new Error('Senha incorreta.');
+                    }
+                }
+            }
+
+            // Senha correta → executa a exclusão pendente
+            fecharModal('modal-confirmar-exclusao');
+            if (typeof _pendingCallback === 'function') _pendingCallback();
+            _pendingCallback = null;
+
+        } catch (e) {
+            const msgs = {
+                'auth/wrong-password':       'Senha incorreta. Tente novamente.',
+                'auth/invalid-credential':   'Senha incorreta. Tente novamente.',
+                'auth/too-many-requests':    'Muitas tentativas. Aguarde alguns minutos.',
+            };
+            const msg = msgs[e.code] || e.message || 'Senha incorreta. Tente novamente.';
+            if (err) { err.textContent = msg; err.style.display = 'block'; }
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-trash"></i> Excluir'; }
+        }
+    };
+
+    // ── Enter no campo de senha ───────────────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+        const modal = document.getElementById('modal-confirmar-exclusao');
+        if (!modal || modal.classList.contains('hidden')) return;
+        if (e.key === 'Enter') { e.preventDefault(); window._exclConfirmar(); }
+        if (e.key === 'Escape') { fecharModal('modal-confirmar-exclusao'); }
+    });
+
+    // ── Captura a senha no login para fallback offline ────────────────────────
+    // Sobrepõe fazerLogin para armazenar a senha na sessão após login bem-sucedido
+    const _origFazerLogin = window.fazerLogin;
+    window.fazerLogin = async function() {
+        const pass = document.getElementById('password');
+        const senhaDigitada = pass ? pass.value : '';
+        await _origFazerLogin();
+        // Se logou com sucesso, armazena em memória (não em localStorage)
+        if (window._firebaseAuth && window._firebaseAuth.currentUser) {
+            window._sessaoSenha = senhaDigitada;
+        }
+        // Monitora mudanças de auth para limpar quando deslogar
+    };
+
+    // Monitora o auth state change para limpar sessaoSenha no logout
+    window.addEventListener('firebaseReady', () => {
+        setTimeout(() => {
+            const auth = window._firebaseAuth;
+            if (auth) {
+                import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js')
+                    .then(({ onAuthStateChanged }) => {
+                        onAuthStateChanged(auth, user => {
+                            if (!user) window._sessaoSenha = null;
+                        });
+                    });
+            }
+        }, 500);
+    });
+
+    // ── Helper global para checar se data é de mês anterior ──────────────────
+    window._guardEhMesAnterior = _ehMesAnterior;
+
+})();
+
+// ==========================================
+// SENHA DE EXCLUSÃO PERSONALIZADA
+// ==========================================
+// Hash simples via Web Crypto API (SHA-256) — não requer backend
+async function _hashSenha(senha) {
+    const enc = new TextEncoder();
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode('excl_lhsc_' + senha));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function abrirModalDefinirSenhaExclusao() {
+    // Preenche o e-mail com o do usuário logado (se disponível)
+    const loginInput = document.getElementById('dse-login');
+    if (loginInput && window._firebaseAuth && window._firebaseAuth.currentUser) {
+        loginInput.value = window._firebaseAuth.currentUser.email || '';
+    } else if (loginInput) {
+        loginInput.value = '';
+    }
+    // Limpa campos
+    ['dse-senha-acesso','dse-nova-senha','dse-confirmar-senha'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.value = ''; el.type = 'password'; }
+    });
+    ['dse-olho1','dse-olho2','dse-olho3'].forEach(id => {
+        const ic = document.getElementById(id);
+        if (ic) ic.className = 'fas fa-eye';
+    });
+    const err = document.getElementById('dse-erro');
+    if (err) { err.textContent = ''; err.style.display = 'none'; }
+    document.getElementById('modal-definir-senha-excl').classList.remove('hidden');
+    setTimeout(() => { const el = document.getElementById('dse-login'); if (el && !el.value) el.focus(); else document.getElementById('dse-senha-acesso').focus(); }, 100);
+}
+
+window._dseToggle = function(inputId, iconId) {
+    const inp = document.getElementById(inputId);
+    const ic  = document.getElementById(iconId);
+    if (!inp) return;
+    if (inp.type === 'password') { inp.type = 'text'; if(ic) ic.className = 'fas fa-eye-slash'; }
+    else                         { inp.type = 'password'; if(ic) ic.className = 'fas fa-eye'; }
+};
+
+window._dseSalvar = async function() {
+    const loginVal  = (document.getElementById('dse-login')?.value || '').trim();
+    const senhaAcesso = document.getElementById('dse-senha-acesso')?.value || '';
+    const novaSenha   = document.getElementById('dse-nova-senha')?.value || '';
+    const confirmSenha= document.getElementById('dse-confirmar-senha')?.value || '';
+    const err = document.getElementById('dse-erro');
+    const btn = document.getElementById('dse-btn-salvar');
+
+    const showErr = (msg) => {
+        if (err) { err.textContent = msg; err.style.display = 'block'; }
+    };
+
+    if (!loginVal)    { showErr('Informe seu e-mail de acesso.'); return; }
+    if (!senhaAcesso) { showErr('Informe sua senha de acesso.'); return; }
+
+    // Se definindo nova senha, ambos os campos devem coincidir
+    if (novaSenha || confirmSenha) {
+        if (novaSenha.length < 4) { showErr('A nova senha deve ter no mínimo 4 caracteres.'); return; }
+        if (novaSenha !== confirmSenha) { showErr('As senhas não coincidem.'); return; }
+    }
+
+    if (err) { err.textContent = ''; err.style.display = 'none'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validando...'; }
+
+    try {
+        // Autentica login + senha de acesso via Firebase
+        const { signInWithEmailAndPassword } = window._firebaseAPI;
+        const auth = window._firebaseAuth;
+
+        if (!auth || !window._firebaseAPI) {
+            // Fallback offline: verifica contra sessão
+            if (!window._sessaoSenha || senhaAcesso !== window._sessaoSenha) {
+                throw new Error('Credenciais de acesso incorretas.');
+            }
+        } else {
+            // Reautentica (não faz novo login — usa reauthenticate se possível)
+            if (auth.currentUser) {
+                const { EmailAuthProvider, reauthenticateWithCredential } = await import(
+                    'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js'
+                );
+                // Garante que o e-mail informado corresponde ao usuário logado
+                if (loginVal.toLowerCase() !== (auth.currentUser.email || '').toLowerCase()) {
+                    throw new Error('O e-mail informado não corresponde ao usuário logado.');
+                }
+                const cred = EmailAuthProvider.credential(auth.currentUser.email, senhaAcesso);
+                await reauthenticateWithCredential(auth.currentUser, cred);
+            } else {
+                // Não está logado: tenta autenticar
+                await signInWithEmailAndPassword(auth, loginVal, senhaAcesso);
+            }
+        }
+
+        // Credenciais válidas → salva (ou remove) senha de exclusão
+        if (novaSenha) {
+            const hash = await _hashSenha(novaSenha);
+            localStorage.setItem('cfg_senha_exclusao', hash);
+            toast('Senha de exclusão definida com sucesso!', 'success');
+        } else {
+            localStorage.removeItem('cfg_senha_exclusao');
+            toast('Senha de exclusão removida. Usando senha de acesso.', 'success');
+        }
+
+        fecharModal('modal-definir-senha-excl');
+        // Atualiza o status na tela de configurações
+        if (typeof _atualizarStatusSenhaExclusao === 'function') _atualizarStatusSenhaExclusao();
+
+    } catch (e) {
+        const msgs = {
+            'auth/wrong-password':     'Senha de acesso incorreta.',
+            'auth/invalid-credential': 'Credenciais de acesso incorretas.',
+            'auth/user-not-found':     'E-mail não encontrado.',
+            'auth/too-many-requests':  'Muitas tentativas. Aguarde alguns minutos.',
+            'auth/invalid-email':      'Formato de e-mail inválido.',
+        };
+        showErr(msgs[e.code] || e.message || 'Erro ao validar credenciais.');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Salvar'; }
+    }
+};
+
+// Atualiza o badge de status na aba Configurações
+function _atualizarStatusSenhaExclusao() {
+    const statusEl = document.getElementById('cfg-senha-excl-status-txt');
+    const statusBox = document.getElementById('cfg-senha-excl-status');
+    const btnTxt    = document.getElementById('cfg-senha-excl-btn-txt');
+    const temCustom = !!localStorage.getItem('cfg_senha_exclusao');
+    if (statusEl) {
+        statusEl.textContent = temCustom
+            ? '🔐 Senha personalizada definida'
+            : '🔓 Usando senha de acesso (padrão)';
+    }
+    if (statusBox) {
+        statusBox.style.background = temCustom ? '#e8f8f5' : '#f4f6f8';
+        const ic = statusBox.querySelector('i');
+        if (ic) { ic.className = temCustom ? 'fas fa-check-circle' : 'fas fa-info-circle'; ic.style.color = temCustom ? '#1abc9c' : '#bbb'; }
+    }
+    if (btnTxt) btnTxt.textContent = temCustom ? 'Alterar Senha' : 'Definir Senha';
+}
+window._atualizarStatusSenhaExclusao = _atualizarStatusSenhaExclusao;
+
 function abrirMesPicker() {
     const grid = document.getElementById('mes-picker-grid');
     grid.innerHTML = `<button class="mes-picker-btn${_mesSel===null?' mes-picker-ativo':''}" onclick="selecionarMesPicker(null)">Todos</button>` +

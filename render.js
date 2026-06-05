@@ -153,6 +153,8 @@ function renderizarConfiguracoes() {
         if (a === getAnoSel()) opt.selected = true;
         sel.appendChild(opt);
     }
+    // Atualiza status da senha de exclusão personalizada
+    if (typeof _atualizarStatusSenhaExclusao === 'function') _atualizarStatusSenhaExclusao();
 }
 
 // ==========================================
@@ -305,54 +307,50 @@ function excluirDespesa(id) {
     const despesa  = despesas.find(x => x.id === id);
     if (!despesa) return;
 
-    // Verifica se é uma despesa paga via cartão de crédito
     const eDeCartao = despesa.tipoPagamentoVal && despesa.tipoPagamentoVal.startsWith('cartao_');
     const cartaoId  = eDeCartao ? despesa.tipoPagamentoVal.replace('cartao_', '') : null;
     const cartao    = cartaoId ? getData('cartoes').find(c => c.id === cartaoId) : null;
+    const avisoExtra = eDeCartao
+        ? 'Esta despesa é vinculada a um cartão de crédito. Desfazer o pagamento voltará a fatura para "A Pagar" e pode afetar saldos e relatórios.'
+        : 'A exclusão desta despesa pode afetar relatórios, análises e saldos calculados do sistema.';
 
-    if (eDeCartao && cartao) {
-        // Despesas de cartão não podem ser excluídas permanentemente aqui.
-        // O correto é desfazer o pagamento — a fatura volta para A Pagar.
-        if (!confirm('Esta despesa é de um cartão de crédito.\n\nDesfazer o pagamento? A fatura voltará para "A Pagar".')) return;
+    confirmarExclusaoComSenha(function() {
+        if (eDeCartao && cartao) {
+            const dataDesp = despesa.data || new Date().toISOString().slice(0, 10);
+            const { mes, ano } = _ccMesFatura(dataDesp, cartao);
+            const faturaId  = `fatura_${cartaoId}_${ano}_${String(mes + 1).padStart(2, '0')}`;
+            const apagar    = getData('a_pagar');
+            const faturaIdx = apagar.findIndex(x => x.id === faturaId);
 
-        const dataDesp = despesa.data || new Date().toISOString().slice(0, 10);
-        const { mes, ano } = _ccMesFatura(dataDesp, cartao);
-        const faturaId  = `fatura_${cartaoId}_${ano}_${String(mes + 1).padStart(2, '0')}`;
-        const apagar    = getData('a_pagar');
-        const faturaIdx = apagar.findIndex(x => x.id === faturaId);
+            if (faturaIdx > -1 && apagar[faturaIdx].pago) {
+                apagar[faturaIdx].pago          = false;
+                apagar[faturaIdx].dataPagamento = null;
+                localStorage.setItem('a_pagar', JSON.stringify(apagar));
+            } else if (faturaIdx === -1) {
+                _ccSincronizarAPagar(cartaoId, mes, ano);
+            }
 
-        if (faturaIdx > -1 && apagar[faturaIdx].pago) {
-            // Desfaz o pagamento: volta para pendente
-            apagar[faturaIdx].pago          = false;
-            apagar[faturaIdx].dataPagamento = null;
-            localStorage.setItem('a_pagar', JSON.stringify(apagar));
-        } else if (faturaIdx === -1) {
-            // Fatura não existe mais: recalcula a partir dos gastos do cartão
-            _ccSincronizarAPagar(cartaoId, mes, ano);
+            localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
+
+            if (typeof _ccPainelCartaoAnterior !== 'undefined') {
+                _ccPainelCartaoAnterior = null;
+            }
+
+            renderizarDespesas();
+            renderizarAPagar();
+            if (typeof renderizarCartoes === 'function') renderizarCartoes();
+            renderizarAnalise();
+            atualizarIconeNotificacao();
+            toast('Pagamento desfeito. Fatura voltou para A Pagar.', 'success');
+            return;
         }
 
+        // Despesa normal
         localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
-
-        // Reseta rastreador: painel do cartão volta para o mês da fatura pendente
-        if (typeof _ccPainelCartaoAnterior !== 'undefined') {
-            _ccPainelCartaoAnterior = null;
-        }
-
         renderizarDespesas();
-        renderizarAPagar();
-        if (typeof renderizarCartoes === 'function') renderizarCartoes();
         renderizarAnalise();
-        atualizarIconeNotificacao();
-        toast('Pagamento desfeito. Fatura voltou para A Pagar.', 'success');
-        return;
-    }
-
-    // Despesa normal: exclusão direta
-    if (!confirm('Excluir esta despesa?')) return;
-    localStorage.setItem('despesas_gastos', JSON.stringify(despesas.filter(x => x.id !== id)));
-    renderizarDespesas();
-    renderizarAnalise();
-    toast('Despesa excluída.', 'success');
+        toast('Despesa excluída.', 'success');
+    }, despesa.data, avisoExtra);
 }
 
 // ==========================================
@@ -442,8 +440,14 @@ function salvarAPagar() {
     }
 
     const tipoVal = document.getElementById('apagar-tipo').value;
+    const arr    = getData('a_pagar', []);
+    const editId = document.getElementById('apagar-edit-id').value;
+
+    // Preserva campos internos de fatura de cartão caso existam no item original
+    const itemOriginal = editId ? (arr.find(x => x.id === editId) || {}) : {};
+
     const item = {
-        id: document.getElementById('apagar-edit-id').value || uid(),
+        id: editId || uid(),
         descricao: desc,
         valor,
         vencimento: venc,
@@ -453,11 +457,22 @@ function salvarAPagar() {
         tipo: tipoVal,
         parcelas: tipoVal === 'Parcelado' ? (parseInt(document.getElementById('apagar-parcelas').value) || 1) : null,
         obs: document.getElementById('apagar-obs').value,
-        pago: document.getElementById('apagar-pago').checked
+        pago: document.getElementById('apagar-pago').checked,
+        dataPagamento: itemOriginal.dataPagamento || null,
+        // ── Preserva vínculo com fatura de cartão ──────────────────────────
+        // Sem isso, ao editar uma fatura o vínculo com a aba Cartões se perde.
+        _faturaCartao: itemOriginal._faturaCartao || false,
+        _cartaoId:     itemOriginal._cartaoId     || null,
     };
 
-    const arr  = getData('a_pagar', []);
-    const editId = document.getElementById('apagar-edit-id').value;
+    // Se era fatura de cartão e o usuário desmarcou "pago" → sincroniza status
+    // para que a aba Cartões volte a mostrar a fatura como pendente.
+    if (item._faturaCartao && item._cartaoId && !item.pago) {
+        if (typeof _ccPainelCartaoAnterior !== 'undefined') {
+            _ccPainelCartaoAnterior = null; // força re-sincronização do painel
+        }
+    }
+
     if (editId) {
         const idx = arr.findIndex(x => x.id === editId);
         if (idx > -1) arr[idx] = item; else arr.push(item);
@@ -470,6 +485,10 @@ function salvarAPagar() {
     renderizarAPagar();
     renderizarAnalise();
     atualizarIconeNotificacao();
+    // Re-renderiza cartões se o item era/é uma fatura de cartão
+    if (item._faturaCartao && typeof renderizarCartoes === 'function') {
+        renderizarCartoes();
+    }
 }
 
 function renderizarAPagar() {
@@ -629,12 +648,13 @@ function excluirAPagar(id) {
         return;
     }
 
-    if (!confirm('Excluir esta conta?')) return;
-    localStorage.setItem('a_pagar', JSON.stringify(arr.filter(x => x.id !== id)));
-    renderizarAPagar();
-    renderizarAnalise();
-    atualizarIconeNotificacao();
-    toast('Conta excluída.', 'success');
+    confirmarExclusaoComSenha(function() {
+        localStorage.setItem('a_pagar', JSON.stringify(arr.filter(x => x.id !== id)));
+        renderizarAPagar();
+        renderizarAnalise();
+        atualizarIconeNotificacao();
+        toast('Conta excluída.', 'success');
+    }, item.vencimento, 'A exclusão desta conta pode afetar o controle de contas a pagar, notificações e relatórios financeiros.');
 }
 
 // ==========================================
@@ -905,6 +925,84 @@ function _ccTotalFatura(cartaoId, mes, ano) {
 }
 
 /**
+ * Verifica se há faturas de cartão em a_pagar que voltaram para pago=false
+ * (via sync Firebase, edição manual ou desfazer pagamento) e força
+ * re-renderização do painel de Cartões para refletir o estado correto.
+ * Chame após qualquer operação que possa alterar o campo `pago` de a_pagar.
+ */
+/**
+ * Ligação inversa A Pagar → Cartões.
+ * Chamada após: sync Firebase, excluirDespesa (desfazer pagamento), salvarAPagar.
+ * NÃO deve ser chamada dentro de renderizarAPagar (evita disparar Firebase e loops).
+ *
+ * Responsabilidades:
+ *  1. Reparar campos _faturaCartao/_cartaoId ausentes (dados corrompidos/migração)
+ *  2. Forçar re-renderização de Cartões quando fatura voltou para pago=false
+ *     — mas SOMENTE se o estado de pago=false é diferente do que o painel já exibe
+ */
+function _ccSincronizarStatusDeFaturas() {
+    const apagar  = getData('a_pagar');
+    const cartoes = getData('cartoes');
+    let camposFaltantes  = false;
+    let faturaVoltouPendente = false;
+
+    const apagarCorrigido = apagar.map(item => {
+        const eFatura = item._faturaCartao || /^fatura_.+_\d{4}_\d{2}$/.test(item.id);
+        if (!eFatura) return item;
+
+        const semFlag     = !item._faturaCartao;
+        const semCartaoId = !item._cartaoId;
+
+        // Extrai cartaoId do padrão do ID se não tiver
+        let cartaoId = item._cartaoId;
+        if (!cartaoId) {
+            const match = item.id.match(/^fatura_(.+)_\d{4}_\d{2}$/);
+            if (match) cartaoId = match[1];
+        }
+
+        if (semFlag || semCartaoId) camposFaltantes = true;
+
+        // Verifica se o cartão existe e a fatura está pendente
+        // Só marca para re-renderizar se a fatura está pendente E o painel pode
+        // estar mostrando o mês errado (detectado pela diferença de mês ativo)
+        if (cartaoId && !item.pago) {
+            const cartao = cartoes.find(c => c.id === cartaoId);
+            if (cartao) {
+                const mesAtivo = _ccMesAtivo(cartaoId);
+                // Se o painel ainda estava no mês errado (diferente do mês ativo desta fatura),
+                // precisamos re-renderizar para corrigir
+                const partes = item.id.replace('fatura_' + cartaoId + '_', '').split('_');
+                const faturaAno = parseInt(partes[0]);
+                const faturaMs  = parseInt(partes[1]) - 1;
+                if (mesAtivo.mes === faturaMs && mesAtivo.ano === faturaAno) {
+                    // A fatura é o mês ativo atual - verifica se o painel está dessincronizado
+                    if (_ccCartaoSel === cartaoId &&
+                        (_ccMesSel !== faturaMs || _ccAnoSel !== faturaAno)) {
+                        faturaVoltouPendente = true;
+                    }
+                }
+            }
+        }
+
+        if (!semFlag && !semCartaoId) return item;
+        return { ...item, _faturaCartao: true, _cartaoId: cartaoId || item._cartaoId || null };
+    });
+
+    // Só persiste se campos foram realmente corrigidos
+    if (camposFaltantes) {
+        localStorage.setItem('a_pagar', JSON.stringify(apagarCorrigido));
+    }
+
+    // Só re-renderiza Cartões se o painel está dessincronizado com o mês ativo
+    if (faturaVoltouPendente && typeof renderizarCartoes === 'function') {
+        if (typeof _ccPainelCartaoAnterior !== 'undefined') {
+            _ccPainelCartaoAnterior = null;
+        }
+        renderizarCartoes();
+    }
+}
+
+/**
  * Recalcula e upsert a conta a pagar da fatura de um cartão no mês/ano.
  * Chama isso sempre que um gasto é salvo ou excluído.
  */
@@ -1020,6 +1118,31 @@ function renderizarCartoes() {
     const painel  = document.getElementById('cc-painel');
     if (!grade) return;
 
+    // ── Ligação inversa: repara campos _faturaCartao/_cartaoId ausentes em a_pagar ──
+    // Só persiste se REALMENTE há campo faltante (evita disparar interceptor Firebase).
+    (function _sincFaturasNaGrade() {
+        const apagar = getData('a_pagar');
+        let precisaPersistir = false;
+        const corrigidos = apagar.map(item => {
+            const eFatura = item._faturaCartao || /^fatura_.+_\d{4}_\d{2}$/.test(item.id);
+            if (!eFatura) return item;
+            // Verifica se campos de vínculo estão faltando de verdade
+            const semFlag    = !item._faturaCartao;
+            const semCartaoId = !item._cartaoId;
+            if (!semFlag && !semCartaoId) return item; // já ok, não modifica
+            precisaPersistir = true;
+            const corrigido = { ...item, _faturaCartao: true };
+            if (semCartaoId) {
+                const match = item.id.match(/^fatura_(.+)_\d{4}_\d{2}$/);
+                if (match) corrigido._cartaoId = match[1];
+            }
+            return corrigido;
+        });
+        if (precisaPersistir) {
+            localStorage.setItem('a_pagar', JSON.stringify(corrigidos));
+        }
+    })();
+
     // Inicializa mês/ano na primeira abertura
     if (_ccMesSel === null) {
         const hoje = new Date();
@@ -1121,6 +1244,16 @@ function _ccRenderizarPainel(cartaoId) {
         _ccMesSel = mesAtivo.mes;
         _ccAnoSel = mesAtivo.ano;
         _ccPainelCartaoAnterior = cartaoId;
+    } else {
+        // Mesmo cartão — verifica se o mês atual do painel tem gastos.
+        // Se não tiver (ex: após sync do Firebase ou re-render), volta ao mês ativo
+        // para evitar exibir fatura pendente no card mas lista vazia no painel.
+        const totalMesSel = _ccTotalFatura(cartaoId, _ccMesSel, _ccAnoSel);
+        const statusMesSel = _ccStatusFatura(cartaoId, _ccMesSel, _ccAnoSel);
+        if (totalMesSel === 0 && statusMesSel === 'vazia') {
+            _ccMesSel = mesAtivo.mes;
+            _ccAnoSel = mesAtivo.ano;
+        }
     }
 
     // Chip e info
@@ -1251,6 +1384,13 @@ function _ccRenderizarGastos(cartaoId) {
         </div>`;
     }).join('');
 }
+
+// ── Ligação inversa A Pagar → Cartões (exposta para firebase-sync) ──────────────
+// Chamada pelo firebase-sync após receber dados do Firestore, para sincronizar
+// o painel de Cartões quando uma fatura voltou para pago=false em outro dispositivo.
+window._ccSincronizarStatusDeFaturas = function() {
+    if (typeof _ccSincronizarStatusDeFaturas === 'function') _ccSincronizarStatusDeFaturas();
+};
 
 // ── Navegação de mês no painel ────────────────────────────────────────────────
 
@@ -1386,40 +1526,37 @@ function salvarGastoCartao() {
 }
 
 function excluirGastoCartao(id) {
-    if (!confirm('Excluir este gasto?')) return;
     const arr   = getData('gastos_cartao');
     const gasto = arr.find(x => x.id === id);
     if (!gasto) return;
 
     const cartao = getData('cartoes').find(c => c.id === gasto.cartaoId);
 
-    // Coleta os meses afetados pelo gasto ANTES de excluí-lo
-    // (após a exclusão, _ccRecalcularTodoCartao não enxerga mais esse gasto)
-    const mesesAfetados = new Set();
-    if (cartao) {
-        const nParc = parseInt(gasto.parcelas) || 1;
-        for (let p = 0; p < nParc; p++) {
-            const [y, m, d] = gasto.data.split('-').map(Number);
-            const dataParc = new Date(y, m - 1 + p, d);
-            const { mes, ano } = _ccMesFatura(dataParc.toISOString().slice(0, 10), cartao);
-            mesesAfetados.add(`${ano}_${mes}`);
+    confirmarExclusaoComSenha(function() {
+        const mesesAfetados = new Set();
+        if (cartao) {
+            const nParc = parseInt(gasto.parcelas) || 1;
+            for (let p = 0; p < nParc; p++) {
+                const [y, m, d] = gasto.data.split('-').map(Number);
+                const dataParc = new Date(y, m - 1 + p, d);
+                const { mes, ano } = _ccMesFatura(dataParc.toISOString().slice(0, 10), cartao);
+                mesesAfetados.add(`${ano}_${mes}`);
+            }
         }
-    }
 
-    // Remove o gasto do storage
-    localStorage.setItem('gastos_cartao', JSON.stringify(arr.filter(x => x.id !== id)));
+        localStorage.setItem('gastos_cartao', JSON.stringify(arr.filter(x => x.id !== id)));
 
-    // Recalcula a fatura de cada mês afetado (agora sem o gasto excluído)
-    mesesAfetados.forEach(chave => {
-        const [ano, mes] = chave.split('_').map(Number);
-        _ccSincronizarAPagar(gasto.cartaoId, mes, ano);
-    });
+        mesesAfetados.forEach(chave => {
+            const [ano, mes] = chave.split('_').map(Number);
+            _ccSincronizarAPagar(gasto.cartaoId, mes, ano);
+        });
 
-    renderizarCartoes();
-    if (typeof renderizarAPagar === 'function') renderizarAPagar();
-    if (typeof renderizarAnalise === 'function') renderizarAnalise();
-    atualizarIconeNotificacao();
-    toast('Gasto excluído.', 'success');
+        renderizarCartoes();
+        if (typeof renderizarAPagar === 'function') renderizarAPagar();
+        if (typeof renderizarAnalise === 'function') renderizarAnalise();
+        atualizarIconeNotificacao();
+        toast('Gasto excluído.', 'success');
+    }, gasto.data, 'A exclusão deste gasto irá recalcular a fatura do cartão. Isso pode afetar o valor das faturas e os registros financeiros.');
 }
 
 // ==========================================
@@ -1519,30 +1656,31 @@ function excluirCartao(id) {
 
     const gastosCartao = getData('gastos_cartao').filter(g => g.cartaoId === id);
     const temGastos = gastosCartao.length > 0;
-    const msg = temGastos
-        ? `Excluir o cartão "${cartao.nome}" e todos os seus ${gastosCartao.length} gasto(s) e faturas associadas?`
-        : `Excluir o cartão "${cartao.nome}"?`;
-    if (!confirm(msg)) return;
+    const avisoExtra = temGastos
+        ? `Excluir o cartão "${cartao.nome}" irá remover permanentemente ${gastosCartao.length} gasto(s) e todas as faturas associadas. Esta ação não pode ser desfeita.`
+        : `Excluir o cartão "${cartao.nome}" irá remover o cartão e todas as faturas associadas.`;
 
-    // 1. Remove os gastos do cartão
-    localStorage.setItem('gastos_cartao', JSON.stringify(getData('gastos_cartao').filter(g => g.cartaoId !== id)));
+    confirmarExclusaoComSenha(function() {
+        // 1. Remove os gastos do cartão
+        localStorage.setItem('gastos_cartao', JSON.stringify(getData('gastos_cartao').filter(g => g.cartaoId !== id)));
 
-    // 2. Remove as faturas (a_pagar) geradas por este cartão
-    const apagar = getData('a_pagar').filter(x => x._cartaoId !== id && x.id !== `fatura_${id}` && !(x.id || '').startsWith(`fatura_${id}_`));
-    localStorage.setItem('a_pagar', JSON.stringify(apagar));
+        // 2. Remove as faturas (a_pagar) geradas por este cartão
+        const apagar = getData('a_pagar').filter(x => x._cartaoId !== id && x.id !== `fatura_${id}` && !(x.id || '').startsWith(`fatura_${id}_`));
+        localStorage.setItem('a_pagar', JSON.stringify(apagar));
 
-    // 3. Remove o cartão
-    localStorage.setItem('cartoes', JSON.stringify(getData('cartoes').filter(x => x.id !== id)));
+        // 3. Remove o cartão
+        localStorage.setItem('cartoes', JSON.stringify(getData('cartoes').filter(x => x.id !== id)));
 
-    // 4. Se era o cartão selecionado, limpa a seleção
-    if (_ccCartaoSel === id) _ccCartaoSel = null;
+        // 4. Se era o cartão selecionado, limpa a seleção
+        if (_ccCartaoSel === id) _ccCartaoSel = null;
 
-    _renderCartoes();
-    renderizarCartoes();
-    if (typeof renderizarAPagar === 'function') renderizarAPagar();
-    if (typeof renderizarAnalise === 'function') renderizarAnalise();
-    atualizarIconeNotificacao();
-    toast('Cartão e todos os dados associados foram excluídos.', 'success');
+        _renderCartoes();
+        renderizarCartoes();
+        if (typeof renderizarAPagar === 'function') renderizarAPagar();
+        if (typeof renderizarAnalise === 'function') renderizarAnalise();
+        atualizarIconeNotificacao();
+        toast('Cartão e todos os dados associados foram excluídos.', 'success');
+    }, null, avisoExtra);
 }
 
 // ---- CATEGORIAS ----
@@ -1645,11 +1783,14 @@ function _renderCatReceitas() {
 }
 
 function excluirCategoria(tipo, id) {
-    if (!confirm('Excluir esta categoria?')) return;
     const key = tipo === 'despesa' ? 'cat_despesas' : 'cat_receitas';
-    localStorage.setItem(key, JSON.stringify(getData(key).filter(x => x.id !== id)));
-    renderizarDados();
-    toast('Categoria excluída.', 'success');
+    const cat = getData(key).find(x => x.id === id);
+    const nome = cat ? cat.nome : 'esta categoria';
+    confirmarExclusaoComSenha(function() {
+        localStorage.setItem(key, JSON.stringify(getData(key).filter(x => x.id !== id)));
+        renderizarDados();
+        toast('Categoria excluída.', 'success');
+    }, null, `Excluir a categoria "${nome}" pode afetar despesas e relatórios que a utilizam. Os registros vinculados ficarão sem categoria.`);
 }
 
 // ---- TIPOS DE DESPESA ----
@@ -1738,10 +1879,13 @@ function _renderTipos() {
 }
 
 function excluirTipo(id) {
-    if (!confirm('Excluir este tipo?')) return;
-    localStorage.setItem('tipos_despesa', JSON.stringify(getData('tipos_despesa').filter(x => x.id !== id)));
-    _renderTipos();
-    toast('Tipo excluído.', 'success');
+    const tipo = getData('tipos_despesa').find(x => x.id === id);
+    const nome = tipo ? tipo.nome : 'este tipo';
+    confirmarExclusaoComSenha(function() {
+        localStorage.setItem('tipos_despesa', JSON.stringify(getData('tipos_despesa').filter(x => x.id !== id)));
+        _renderTipos();
+        toast('Tipo excluído.', 'success');
+    }, null, `Excluir o tipo de despesa "${nome}" pode afetar registros que o utilizam como forma de pagamento.`);
 }
 
 // ---- METAS ----
@@ -1843,10 +1987,11 @@ function _renderMetas() {
 }
 
 function excluirMeta(id) {
-    if (!confirm('Excluir esta meta?')) return;
-    localStorage.setItem('metas', JSON.stringify(getData('metas').filter(x => x.id !== id)));
-    _renderMetas();
-    toast('Meta excluída.', 'success');
+    confirmarExclusaoComSenha(function() {
+        localStorage.setItem('metas', JSON.stringify(getData('metas').filter(x => x.id !== id)));
+        _renderMetas();
+        toast('Meta excluída.', 'success');
+    }, null, 'Excluir esta meta removerá o limite de gastos configurado para esta categoria.');
 }
 
 // ==========================================
